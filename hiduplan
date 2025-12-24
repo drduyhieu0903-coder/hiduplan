@@ -1,0 +1,1068 @@
+import streamlit as st
+import streamlit.components.v1 as components
+import trimesh
+import os
+import zipfile
+import tempfile
+import base64
+import shutil
+
+# --- CONFIGURATION ---
+st.set_page_config(layout="wide", page_title="HIDU - Surgical Planning Studio")
+
+st.markdown("""
+<style>
+    .stApp { background-color: #0a0e27; color: #e8eaf6; }
+    h1 { color: #ffffff !important; font-weight: 300 !important; letter-spacing: 2px; }
+    .stFileUploader { 
+        border: 2px dashed #3949ab; 
+        border-radius: 12px; 
+        background: rgba(57, 73, 171, 0.05);
+        padding: 20px;
+    }
+    section[data-testid="stSidebar"] { 
+        background: linear-gradient(180deg, #1a237e 0%, #0d47a1 100%);
+        color: white;
+    }
+    .stButton>button {
+        background: linear-gradient(135deg, #1976d2 0%, #2196f3 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 24px;
+        font-weight: 500;
+        transition: all 0.3s;
+    }
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("⚕️ HIDU: Medical Surgical Planning Studio")
+
+if 'scale_factor' not in st.session_state:
+    st.session_state['scale_factor'] = 1.0
+
+# --- BACKEND ---
+@st.cache_data(show_spinner=False)
+def process_file_high_quality(uploaded_file):
+    temp_dir = tempfile.mkdtemp()
+    extract_path = os.path.join(temp_dir, "extracted")
+    os.makedirs(extract_path, exist_ok=True)
+    
+    with zipfile.ZipFile(uploaded_file, 'r') as zip_ref:
+        zip_ref.extractall(extract_path)
+    
+    obj_file = None
+    mtl_file = None
+    tex_file = None
+    
+    for root, dirs, files in os.walk(extract_path):
+        for file in files:
+            if file.lower().endswith('.obj'):
+                obj_file = os.path.join(root, file)
+            elif file.lower().endswith('.mtl'):
+                mtl_file = os.path.join(root, file)
+            elif file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                tex_file = os.path.join(root, file)
+
+    if not obj_file:
+        return None, None, "❌ No .obj file found"
+    
+    mesh = trimesh.load(obj_file, force='mesh')
+    mesh.apply_translation(-mesh.centroid) 
+    obj_str = mesh.export(file_type='obj')
+    
+    mtl_content = ""
+    if mtl_file and tex_file:
+        try:
+            with open(tex_file, "rb") as f:
+                b64_img = base64.b64encode(f.read()).decode()
+            mime = "image/png" if tex_file.lower().endswith('.png') else "image/jpeg"
+            data_uri = f"data:{mime};base64,{b64_img}"
+            with open(mtl_file, "r", encoding='utf-8', errors='ignore') as f:
+                raw_mtl = f.read()
+            lines = []
+            for line in raw_mtl.splitlines():
+                if line.strip().startswith("map_Kd"):
+                    lines.append(f"map_Kd {data_uri}")
+                else:
+                    lines.append(line)
+            mtl_content = "\n".join(lines)
+        except:
+            mtl_content = ""
+            
+    shutil.rmtree(temp_dir)
+    return obj_str, mtl_content, None
+
+# --- FRONTEND: MEDICAL GRADE 3D VIEWER ---
+def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
+    if isinstance(obj_text, bytes): obj_text = obj_text.decode('utf-8')
+    b64_obj = base64.b64encode(obj_text.encode('utf-8')).decode('utf-8')
+    b64_mtl = base64.b64encode(mtl_text.encode('utf-8')).decode('utf-8')
+    
+    html_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ 
+                overflow: hidden; 
+                background: linear-gradient(135deg, #0a0e27 0%, #1a237e 100%);
+                font-family: 'Segoe UI', 'Roboto', sans-serif; 
+                user-select: none; 
+            }}
+            canvas {{ width: 100%; height: 100%; display: block; outline: none; }}
+            
+            /* PROFESSIONAL MEDICAL TOOLBAR */
+            .toolbar {{
+                position: absolute; top: 20px; left: 20px;
+                background: linear-gradient(135deg, rgba(13, 71, 161, 0.95), rgba(25, 118, 210, 0.95));
+                backdrop-filter: blur(15px);
+                border-radius: 16px;
+                padding: 12px;
+                border: 2px solid rgba(255,255,255,0.15);
+                display: flex; flex-direction: column; gap: 10px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+                width: 60px;
+                z-index: 100;
+            }}
+            
+            .tool-btn {{
+                width: 48px; height: 48px;
+                border-radius: 12px; border: none;
+                background: rgba(255,255,255,0.1); 
+                color: #e3f2fd;
+                cursor: pointer; 
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                display: flex; align-items: center; justify-content: center;
+            }}
+            .tool-btn:hover {{ 
+                background: rgba(255,255,255,0.2); 
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(33,150,243,0.4);
+            }}
+            .tool-btn.active {{ 
+                background: linear-gradient(135deg, #2196f3, #1976d2);
+                box-shadow: 0 4px 20px rgba(33,150,243,0.6);
+                transform: scale(1.05);
+            }}
+            .tool-btn i {{ font-size: 24px; }}
+            
+            .divider {{ height: 2px; background: rgba(255,255,255,0.2); margin: 5px 0; border-radius: 1px; }}
+
+            /* SETTINGS PANEL */
+            .settings-panel {{
+                position: absolute; top: 20px; left: 95px;
+                background: linear-gradient(135deg, rgba(13, 71, 161, 0.95), rgba(25, 118, 210, 0.95));
+                backdrop-filter: blur(15px);
+                border-radius: 16px;
+                padding: 20px;
+                border: 2px solid rgba(255,255,255,0.15);
+                color: white; 
+                width: 280px;
+                display: none;
+                flex-direction: column; 
+                gap: 16px;
+                z-index: 99;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            }}
+            
+            .panel-header {{
+                font-weight: 600;
+                font-size: 14px;
+                color: #e3f2fd;
+                letter-spacing: 1px;
+                text-transform: uppercase;
+                border-bottom: 2px solid rgba(255,255,255,0.2);
+                padding-bottom: 10px;
+                margin-bottom: 5px;
+            }}
+            
+            .setting-row {{ 
+                display: flex; 
+                align-items: center; 
+                justify-content: space-between; 
+                font-size: 13px;
+                padding: 8px 0;
+            }}
+            
+            .setting-label {{
+                color: #e3f2fd;
+                font-weight: 500;
+            }}
+            
+            /* Medical Color Presets */
+            .color-presets {{
+                display: grid;
+                grid-template-columns: repeat(5, 1fr);
+                gap: 8px;
+                margin: 10px 0;
+            }}
+            
+            .color-preset {{
+                width: 36px;
+                height: 36px;
+                border-radius: 8px;
+                cursor: pointer;
+                border: 2px solid transparent;
+                transition: all 0.2s;
+            }}
+            
+            .color-preset:hover {{
+                transform: scale(1.1);
+                border-color: white;
+            }}
+            
+            .color-preset.active {{
+                border-color: white;
+                box-shadow: 0 0 12px currentColor;
+            }}
+            
+            .slider {{ 
+                width: 140px; 
+                height: 6px;
+                border-radius: 3px;
+                background: rgba(255,255,255,0.2);
+                outline: none;
+                -webkit-appearance: none;
+            }}
+            
+            .slider::-webkit-slider-thumb {{
+                -webkit-appearance: none;
+                width: 16px;
+                height: 16px;
+                border-radius: 50%;
+                background: #2196f3;
+                cursor: pointer;
+                box-shadow: 0 2px 8px rgba(33,150,243,0.5);
+            }}
+            
+            .value-display {{
+                min-width: 45px;
+                text-align: right;
+                font-weight: 600;
+                color: #64b5f6;
+            }}
+            
+            /* MEASUREMENT DISPLAY */
+            .measurement-box {{
+                background: rgba(0,0,0,0.7);
+                border: 2px solid #4caf50;
+                border-radius: 12px;
+                padding: 16px;
+                margin-top: 10px;
+                text-align: center;
+            }}
+            
+            .measurement-label {{
+                font-size: 11px;
+                color: #a5d6a7;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                margin-bottom: 5px;
+            }}
+            
+            .measurement-value {{
+                font-size: 24px;
+                font-weight: 700;
+                color: #4caf50;
+                text-shadow: 0 0 10px rgba(76,175,80,0.5);
+            }}
+
+            /* HUD INFO */
+            .info-hud {{
+                position: absolute; 
+                bottom: 30px; 
+                left: 50%; 
+                transform: translateX(-50%);
+                background: rgba(0,0,0,0.8); 
+                color: white;
+                padding: 12px 24px; 
+                border-radius: 24px; 
+                font-size: 13px;
+                pointer-events: none; 
+                opacity: 0; 
+                transition: opacity 0.3s;
+                border: 1px solid rgba(255,255,255,0.2);
+            }}
+            .info-hud.visible {{ opacity: 1; }}
+
+            /* VIEW NAVIGATION - REDESIGNED */
+            .nav-panel {{
+                position: absolute; top: 20px; right: 20px;
+                background: linear-gradient(135deg, rgba(13, 71, 161, 0.95), rgba(25, 118, 210, 0.95));
+                backdrop-filter: blur(15px);
+                border-radius: 16px;
+                padding: 15px;
+                border: 2px solid rgba(255,255,255,0.15);
+                box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            }}
+            
+            .nav-grid {{
+                display: grid;
+                grid-template-columns: repeat(3, 50px);
+                grid-template-rows: repeat(3, 50px);
+                gap: 8px;
+                margin-bottom: 12px;
+            }}
+            
+            .nav-btn {{
+                background: rgba(255,255,255,0.1);
+                color: #fff; 
+                border: 2px solid rgba(255,255,255,0.2);
+                border-radius: 10px; 
+                font-size: 11px; 
+                font-weight: 600;
+                cursor: pointer;
+                text-align: center;
+                transition: all 0.3s;
+                backdrop-filter: blur(10px);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }}
+            
+            .nav-btn:hover {{ 
+                background: linear-gradient(135deg, #2196f3, #1976d2);
+                transform: scale(1.05);
+                box-shadow: 0 4px 12px rgba(33,150,243,0.4);
+            }}
+            
+            .nav-btn.center {{
+                background: rgba(255,255,255,0.15);
+                cursor: default;
+                pointer-events: none;
+            }}
+            
+            .rotate-controls {{
+                display: grid;
+                grid-template-columns: repeat(3, 50px);
+                grid-template-rows: repeat(3, 50px);
+                gap: 8px;
+            }}
+            
+            .rotate-btn {{
+                background: rgba(255,255,255,0.1);
+                color: #fff;
+                border: 2px solid rgba(255,255,255,0.2);
+                border-radius: 10px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.3s;
+            }}
+            
+            .rotate-btn:hover {{
+                background: rgba(255,255,255,0.2);
+                transform: scale(1.05);
+            }}
+            
+            .rotate-btn i {{
+                font-size: 20px;
+            }}
+
+        </style>
+        
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/MTLLoader.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+    </head>
+    <body>
+        
+        <!-- TOOLBAR -->
+        <div class="toolbar">
+            <button class="tool-btn active" id="t-view" onclick="selectTool('view')" title="Rotate View">
+                <i class="material-icons">3d_rotation</i>
+            </button>
+            <div class="divider"></div>
+            <button class="tool-btn" id="t-brush" onclick="selectTool('brush')" title="Surface Brush">
+                <i class="material-icons">brush</i>
+            </button>
+            <button class="tool-btn" id="t-line" onclick="selectTool('line')" title="Measurement Line">
+                <i class="material-icons">timeline</i>
+            </button>
+            <button class="tool-btn" id="t-distance" onclick="selectTool('distance')" title="Distance Tool">
+                <i class="material-icons">straighten</i>
+            </button>
+            <button class="tool-btn" id="t-angle" onclick="selectTool('angle')" title="Angle Measurement">
+                <i class="material-icons">architecture</i>
+            </button>
+            <div class="divider"></div>
+            <button class="tool-btn" id="t-undo" onclick="undo()" title="Undo">
+                <i class="material-icons">undo</i>
+            </button>
+            <button class="tool-btn" id="t-clear" onclick="clearAll()" title="Clear All">
+                <i class="material-icons">delete_outline</i>
+            </button>
+        </div>
+
+        <!-- SETTINGS PANEL -->
+        <div class="settings-panel" id="settings">
+            <div class="panel-header" id="tool-name">TOOL SETTINGS</div>
+            
+            <!-- Medical Color Presets -->
+            <div>
+                <div class="setting-label" style="margin-bottom: 8px;">Surgical Marker Color</div>
+                <div class="color-presets">
+                    <div class="color-preset active" style="background: #9C27B0;" data-color="#9C27B0" onclick="setColor(this)"></div>
+                    <div class="color-preset" style="background: #E91E63;" data-color="#E91E63" onclick="setColor(this)"></div>
+                    <div class="color-preset" style="background: #2196F3;" data-color="#2196F3" onclick="setColor(this)"></div>
+                    <div class="color-preset" style="background: #4CAF50;" data-color="#4CAF50" onclick="setColor(this)"></div>
+                    <div class="color-preset" style="background: #FF9800;" data-color="#FF9800" onclick="setColor(this)"></div>
+                    <div class="color-preset" style="background: #F44336;" data-color="#F44336" onclick="setColor(this)"></div>
+                    <div class="color-preset" style="background: #00BCD4;" data-color="#00BCD4" onclick="setColor(this)"></div>
+                    <div class="color-preset" style="background: #FFEB3B;" data-color="#FFEB3B" onclick="setColor(this)"></div>
+                    <div class="color-preset" style="background: #FFFFFF;" data-color="#FFFFFF" onclick="setColor(this)"></div>
+                    <div class="color-preset" style="background: #000000;" data-color="#000000" onclick="setColor(this)"></div>
+                </div>
+            </div>
+            
+            <div class="setting-row">
+                <span class="setting-label">Line Width</span>
+                <input type="range" id="p-width" class="slider" min="0.002" max="0.012" step="0.001" value="0.003" oninput="updateSettings()">
+                <span class="value-display" id="width-val">3</span>
+            </div>
+            
+            <div class="setting-row">
+                <span class="setting-label">Opacity</span>
+                <input type="range" id="p-opacity" class="slider" min="0.3" max="1" step="0.1" value="0.95" oninput="updateSettings()">
+                <span class="value-display" id="opacity-val">0.95</span>
+            </div>
+            
+            <div class="setting-row">
+                <span class="setting-label">Surface Offset</span>
+                <input type="range" id="p-offset" class="slider" min="0.00001" max="0.001" step="0.00001" value="0.0001" oninput="updateSettings()">
+                <span class="value-display" id="offset-val">0.0001</span>
+            </div>
+            
+            <!-- Measurement Display -->
+            <div id="measure-box" style="display:none;">
+                <div class="measurement-box">
+                    <div class="measurement-label" id="measure-label">MEASUREMENT</div>
+                    <div class="measurement-value" id="measure-value">0.0 mm</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="info-hud" class="info-hud">Select a tool to start</div>
+
+        <!-- VIEW NAVIGATION - REDESIGNED -->
+        <div class="nav-panel">
+            <div class="nav-grid">
+                <div class="nav-btn" onclick="setView('top')">TOP</div>
+                <div></div>
+                <div></div>
+                
+                <div class="nav-btn" onclick="setView('left')">LEFT</div>
+                <div class="nav-btn center">VIEW</div>
+                <div class="nav-btn" onclick="setView('right')">RIGHT</div>
+                
+                <div></div>
+                <div class="nav-btn" onclick="setView('front')">FRONT</div>
+                <div class="nav-btn" onclick="setView('bottom')">BOT</div>
+            </div>
+            
+            <div style="height: 2px; background: rgba(255,255,255,0.2); margin: 10px 0;"></div>
+            
+            <div class="rotate-controls">
+                <div></div>
+                <div class="rotate-btn" onclick="rotateCamera('up')">
+                    <i class="material-icons">arrow_upward</i>
+                </div>
+                <div></div>
+                
+                <div class="rotate-btn" onclick="rotateCamera('left')">
+                    <i class="material-icons">arrow_back</i>
+                </div>
+                <div></div>
+                <div class="rotate-btn" onclick="rotateCamera('right')">
+                    <i class="material-icons">arrow_forward</i>
+                </div>
+                
+                <div></div>
+                <div class="rotate-btn" onclick="rotateCamera('down')">
+                    <i class="material-icons">arrow_downward</i>
+                </div>
+                <div></div>
+            </div>
+        </div>
+
+        <script>
+            let camera, controls, scene, renderer, raycaster, mouse;
+            let currentZoom = 300; 
+            let targetObject = null;
+            let currentTool = 'view';
+            const SCALE_FACTOR = {scale_factor};
+            
+            // Drawing State
+            let isDrawing = false;
+            let drawPoints = [];
+            let tempLine = null;
+            let drawnObjects = [];
+            
+            // Measurement State
+            let measurePoints = [];
+            let measureMarkers = [];
+            
+            // Settings
+            let settings = {{
+                color: 0x9C27B0,
+                colorHex: '#9C27B0',
+                lineWidth: 0.003,
+                opacity: 0.95,
+                offsetFactor: 0.0001
+            }};
+
+            function init() {{
+                scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x1a1a1a);
+
+                camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
+                renderer = new THREE.WebGLRenderer({{ antialias: true }});
+                renderer.setSize(window.innerWidth, {height});
+                renderer.setPixelRatio(window.devicePixelRatio);
+                renderer.outputEncoding = THREE.sRGBEncoding;
+                document.body.appendChild(renderer.domElement);
+
+                controls = new THREE.OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.05;
+
+                raycaster = new THREE.Raycaster();
+                raycaster.params.Line.threshold = 0.5;
+                mouse = new THREE.Vector2();
+
+                // LOAD MODEL - USE BASIC MATERIAL LIKE ORIGINAL
+                const mtlLoader = new THREE.MTLLoader();
+                const materials = mtlLoader.parse(atob("{b64_mtl}"));
+                materials.preload();
+                
+                for (const key in materials.materials) {{
+                    const mat = materials.materials[key];
+                    const basicMat = new THREE.MeshBasicMaterial({{ 
+                        map: mat.map, 
+                        side: THREE.DoubleSide 
+                    }});
+                    if(basicMat.map) basicMat.map.encoding = THREE.sRGBEncoding;
+                    materials.materials[key] = basicMat;
+                }}
+
+                const objLoader = new THREE.OBJLoader();
+                objLoader.setMaterials(materials);
+                const object = objLoader.parse(atob("{b64_obj}"));
+
+                const box = new THREE.Box3().setFromObject(object);
+                const center = box.getCenter(new THREE.Vector3());
+                object.position.sub(center);
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                
+                if(maxDim > 0) {{
+                     currentZoom = maxDim * 2.0; 
+                     camera.position.set(0, 0, currentZoom);
+                }} else {{ 
+                    camera.position.set(0, 0, 300); 
+                }}
+                controls.target.set(0, 0, 0);
+                
+                scene.add(object);
+                targetObject = object;
+
+                // Event Listeners
+                const canvas = renderer.domElement;
+                canvas.addEventListener('pointerdown', onDown);
+                canvas.addEventListener('pointermove', onMove);
+                canvas.addEventListener('pointerup', onUp);
+                window.addEventListener('resize', () => {{
+                    camera.aspect = window.innerWidth / window.innerHeight;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(window.innerWidth, {height});
+                }});
+                
+                animate();
+                selectTool('view');
+            }}
+
+            function animate() {{
+                requestAnimationFrame(animate);
+                TWEEN.update();
+                controls.update();
+                renderer.render(scene, camera);
+            }}
+
+            // --- TOOL SYSTEM ---
+            window.selectTool = function(tool) {{
+                currentTool = tool;
+                resetTemp();
+                
+                document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+                const btn = document.getElementById('t-' + tool);
+                if(btn) btn.classList.add('active');
+                
+                const sPanel = document.getElementById('settings');
+                const tName = document.getElementById('tool-name');
+                const hud = document.getElementById('info-hud');
+                const measureBox = document.getElementById('measure-box');
+                
+                measureBox.style.display = 'none';
+                
+                if (tool === 'view') {{
+                    document.body.style.cursor = 'default';
+                    controls.enabled = true;
+                    sPanel.style.display = 'none';
+                    hud.classList.remove('visible');
+                }} else {{
+                    document.body.style.cursor = 'crosshair';
+                    controls.enabled = false;
+                    sPanel.style.display = 'flex';
+                    hud.classList.add('visible');
+                    
+                    if(tool === 'brush') {{ 
+                        tName.innerText = "SURFACE BRUSH"; 
+                        hud.innerText = "Click and drag to draw on surface"; 
+                    }}
+                    else if(tool === 'line') {{ 
+                        tName.innerText = "SURGICAL MARKING LINE"; 
+                        hud.innerText = "Click two points to draw line"; 
+                    }}
+                    else if(tool === 'distance') {{ 
+                        tName.innerText = "DISTANCE MEASUREMENT"; 
+                        hud.innerText = "Click two points to measure distance";
+                        measureBox.style.display = 'block';
+                        document.getElementById('measure-label').innerText = "DISTANCE";
+                    }}
+                    else if(tool === 'angle') {{ 
+                        tName.innerText = "ANGLE MEASUREMENT"; 
+                        hud.innerText = "Click 3 points: Vertex → Point 1 → Point 2";
+                        measureBox.style.display = 'block';
+                        document.getElementById('measure-label').innerText = "ANGLE";
+                    }}
+                }}
+            }}
+
+            window.setColor = function(element) {{
+                document.querySelectorAll('.color-preset').forEach(e => e.classList.remove('active'));
+                element.classList.add('active');
+                settings.colorHex = element.dataset.color;
+                settings.color = parseInt(element.dataset.color.replace('#', '0x'));
+            }}
+
+            window.updateSettings = function() {{
+                settings.lineWidth = parseFloat(document.getElementById('p-width').value);
+                settings.opacity = parseFloat(document.getElementById('p-opacity').value);
+                settings.offsetFactor = parseFloat(document.getElementById('p-offset').value);
+                
+                document.getElementById('width-val').innerText = (settings.lineWidth * 1000).toFixed(0);
+                document.getElementById('opacity-val').innerText = settings.opacity.toFixed(2);
+                document.getElementById('offset-val').innerText = settings.offsetFactor.toFixed(5);
+            }}
+
+            // --- RAYCASTING ---
+            function getIntersects(event) {{
+                const rect = renderer.domElement.getBoundingClientRect();
+                mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                raycaster.setFromCamera(mouse, camera);
+                return raycaster.intersectObject(targetObject, true);
+            }}
+
+            function getOffsetPoint(hit) {{
+                const offset = currentZoom * settings.offsetFactor;
+                return hit.point.clone().add(hit.face.normal.clone().multiplyScalar(offset));
+            }}
+
+            // --- SURFACE PROJECTION ---
+            function projectPointsOnSurface(p1, p2, steps = 20) {{
+                const points = [];
+                for(let i = 0; i <= steps; i++) {{
+                    const t = i / steps;
+                    const interpPoint = new THREE.Vector3().lerpVectors(p1, p2, t);
+                    
+                    const dir = interpPoint.clone().sub(camera.position).normalize();
+                    raycaster.set(camera.position, dir);
+                    const hits = raycaster.intersectObject(targetObject, true);
+                    
+                    if(hits.length > 0) {{
+                        points.push(getOffsetPoint(hits[0]));
+                    }} else {{
+                        points.push(interpPoint);
+                    }}
+                }}
+                return points;
+            }}
+
+            // --- INTERACTION ---
+            function onDown(event) {{
+                if (currentTool === 'view' || event.button !== 0) return;
+
+                const hits = getIntersects(event);
+                if (hits.length > 0) {{
+                    const point = getOffsetPoint(hits[0]);
+                    
+                    if (currentTool === 'brush') {{
+                        isDrawing = true;
+                        drawPoints = [point];
+                        createBrushLine();
+                    }} 
+                    else if (currentTool === 'line' || currentTool === 'distance') {{
+                        if(measurePoints.length === 0) {{
+                            measurePoints.push(point);
+                            addMarker(point, 0xff0000);
+                        }} else {{
+                            measurePoints.push(point);
+                            addMarker(point, 0xff0000);
+                            
+                            if(currentTool === 'line') {{
+                                drawSurfaceLine(measurePoints[0], measurePoints[1]);
+                            }} else {{
+                                measureDistance(measurePoints[0], measurePoints[1]);
+                            }}
+                            
+                            measurePoints = [];
+                        }}
+                    }}
+                    else if (currentTool === 'angle') {{
+                        handleAngleMeasurement(point);
+                    }}
+                }}
+            }}
+
+            function onMove(event) {{
+                if (!isDrawing || currentTool !== 'brush') return;
+
+                const hits = getIntersects(event);
+                if (hits.length > 0) {{
+                    const point = getOffsetPoint(hits[0]);
+                    const lastPoint = drawPoints[drawPoints.length - 1];
+                    
+                    if(point.distanceTo(lastPoint) > currentZoom * 0.002) {{
+                        const projected = projectPointsOnSurface(lastPoint, point, 3);
+                        drawPoints.push(...projected);
+                        updateBrushLine();
+                    }}
+                }}
+            }}
+
+            function onUp(event) {{
+                if (isDrawing && currentTool === 'brush') {{
+                    isDrawing = false;
+                    if (tempLine) {{
+                        drawnObjects.push(tempLine);
+                        tempLine = null;
+                    }}
+                    drawPoints = [];
+                }}
+            }}
+
+            // --- DRAWING TOOLS ---
+            function createBrushLine() {{
+                const geo = new THREE.BufferGeometry().setFromPoints(drawPoints);
+                const mat = new THREE.LineBasicMaterial({{ 
+                    color: settings.color,
+                    transparent: true, 
+                    opacity: settings.opacity,
+                    depthTest: false
+                }});
+                tempLine = new THREE.Line(geo, mat);
+                tempLine.renderOrder = 999;
+                scene.add(tempLine);
+                
+                // Add tube for visible thickness
+                addThickLine(drawPoints, settings.color, settings.lineWidth);
+            }}
+
+            function updateBrushLine() {{
+                if(tempLine) {{
+                    tempLine.geometry.setFromPoints(drawPoints);
+                    // Update thick line
+                    const thickLine = tempLine.userData.thickLine;
+                    if(thickLine) scene.remove(thickLine);
+                    tempLine.userData.thickLine = addThickLine(drawPoints, settings.color, settings.lineWidth);
+                }}
+            }}
+
+            function addThickLine(points, color, width) {{
+                if(points.length < 2) return null;
+                
+                const vertices = [];
+                for(let i = 0; i < points.length - 1; i++) {{
+                    const p1 = points[i];
+                    const p2 = points[i + 1];
+                    
+                    const segments = 4;
+                    for(let j = 0; j < segments; j++) {{
+                        const angle = (j / segments) * Math.PI * 2;
+                        const offset = new THREE.Vector3(
+                            Math.cos(angle) * width * currentZoom,
+                            Math.sin(angle) * width * currentZoom,
+                            0
+                        );
+                        
+                        vertices.push(p1.clone().add(offset));
+                        vertices.push(p2.clone().add(offset));
+                    }}
+                }}
+                
+                const geo = new THREE.BufferGeometry().setFromPoints(vertices);
+                const mat = new THREE.MeshBasicMaterial({{ 
+                    color: color,
+                    transparent: true,
+                    opacity: settings.opacity,
+                    depthTest: false
+                }});
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.renderOrder = 999;
+                scene.add(mesh);
+                return mesh;
+            }}
+
+            function drawSurfaceLine(p1, p2) {{
+                const projected = projectPointsOnSurface(p1, p2, 30);
+                const geo = new THREE.BufferGeometry().setFromPoints(projected);
+                const mat = new THREE.LineBasicMaterial({{ 
+                    color: settings.color,
+                    transparent: true, 
+                    opacity: settings.opacity,
+                    depthTest: false
+                }});
+                const line = new THREE.Line(geo, mat);
+                line.renderOrder = 999;
+                scene.add(line);
+                drawnObjects.push(line);
+                
+                const thick = addThickLine(projected, settings.color, settings.lineWidth);
+                if(thick) drawnObjects.push(thick);
+            }}
+
+            function addMarker(point, color) {{
+                const geo = new THREE.SphereGeometry(currentZoom * 0.002, 16, 16);
+                const mat = new THREE.MeshBasicMaterial({{ color: color, depthTest: false }});
+                const marker = new THREE.Mesh(geo, mat);
+                marker.position.copy(point);
+                marker.renderOrder = 1000;
+                scene.add(marker);
+                measureMarkers.push(marker);
+            }}
+
+            function measureDistance(p1, p2) {{
+                const dist = p1.distanceTo(p2) * SCALE_FACTOR;
+                document.getElementById('measure-value').innerText = dist.toFixed(2) + ' mm';
+                
+                drawSurfaceLine(p1, p2);
+                
+                setTimeout(() => {{
+                    measureMarkers.forEach(m => scene.remove(m));
+                    measureMarkers = [];
+                }}, 3000);
+            }}
+
+            function handleAngleMeasurement(point) {{
+                measurePoints.push(point);
+                addMarker(point, 0xffff00);
+                
+                if(measurePoints.length === 1) {{
+                    document.getElementById('info-hud').innerText = "Vertex set. Click Point 1";
+                }}
+                else if(measurePoints.length === 2) {{
+                    document.getElementById('info-hud').innerText = "Point 1 set. Click Point 2";
+                    drawSurfaceLine(measurePoints[0], measurePoints[1]);
+                }}
+                else if(measurePoints.length === 3) {{
+                    const v1 = measurePoints[1].clone().sub(measurePoints[0]).normalize();
+                    const v2 = measurePoints[2].clone().sub(measurePoints[0]).normalize();
+                    const angle = THREE.MathUtils.radToDeg(v1.angleTo(v2));
+                    
+                    document.getElementById('measure-value').innerText = angle.toFixed(1) + '°';
+                    document.getElementById('info-hud').innerText = "Angle measured";
+                    
+                    drawSurfaceLine(measurePoints[0], measurePoints[2]);
+                    
+                    setTimeout(() => {{
+                        measureMarkers.forEach(m => scene.remove(m));
+                        measureMarkers = [];
+                        measurePoints = [];
+                    }}, 4000);
+                }}
+            }}
+
+            // --- UTILITIES ---
+            window.undo = function() {{
+                if (drawnObjects.length > 0) {{
+                    const obj = drawnObjects.pop();
+                    scene.remove(obj);
+                    if(obj.geometry) obj.geometry.dispose();
+                    if(obj.material) obj.material.dispose();
+                }}
+            }}
+
+            window.clearAll = function() {{
+                if(confirm('Clear all surgical markings?')) {{
+                    while(drawnObjects.length > 0) undo();
+                    resetTemp();
+                }}
+            }}
+
+            function resetTemp() {{
+                if(tempLine) {{ 
+                    scene.remove(tempLine);
+                    if(tempLine.userData.thickLine) scene.remove(tempLine.userData.thickLine);
+                    tempLine = null; 
+                }}
+                measurePoints = [];
+                measureMarkers.forEach(m => scene.remove(m));
+                measureMarkers = [];
+                drawPoints = [];
+                isDrawing = false;
+            }}
+
+            // --- VIEW CONTROLS (CORRECTED) ---
+            window.setView = function(v) {{
+                const d = currentZoom * 0.8;
+                const views = {{
+                    'front': {{p: {{x:0, y:0, z:d}}, u: {{x:0, y:1, z:0}}}},      // Nhìn từ phía trước
+                    'left': {{p: {{x:-d, y:0, z:0}}, u: {{x:0, y:1, z:0}}}},      // Nhìn từ bên trái
+                    'right': {{p: {{x:d, y:0, z:0}}, u: {{x:0, y:1, z:0}}}},      // Nhìn từ bên phải
+                    'top': {{p: {{x:0, y:d, z:0}}, u: {{x:0, y:0, z:-1}}}},       // Nhìn từ trên xuống
+                    'bottom': {{p: {{x:0, y:-d, z:0}}, u: {{x:0, y:0, z:1}}}}     // Nhìn từ dưới lên
+                }};
+                
+                const target = views[v];
+                if(!target) return;
+                
+                new TWEEN.Tween(controls.target)
+                    .to({{x:0, y:0, z:0}}, 600)
+                    .easing(TWEEN.Easing.Cubic.InOut)
+                    .start();
+                    
+                new TWEEN.Tween(camera.position)
+                    .to(target.p, 800)
+                    .easing(TWEEN.Easing.Cubic.InOut)
+                    .onUpdate(() => {{
+                        camera.up.copy(target.u);
+                    }})
+                    .start();
+            }}
+
+            window.rotateCamera = function(direction) {{
+                const rotateAmount = Math.PI / 8; // 22.5 degrees
+                const currentPos = camera.position.clone();
+                const target = controls.target.clone();
+                
+                let newPos = currentPos.clone().sub(target);
+                
+                if(direction === 'left') {{
+                    const axis = new THREE.Vector3(0, 1, 0);
+                    newPos.applyAxisAngle(axis, rotateAmount);
+                }}
+                else if(direction === 'right') {{
+                    const axis = new THREE.Vector3(0, 1, 0);
+                    newPos.applyAxisAngle(axis, -rotateAmount);
+                }}
+                else if(direction === 'up') {{
+                    const axis = new THREE.Vector3(1, 0, 0);
+                    newPos.applyAxisAngle(axis, rotateAmount);
+                }}
+                else if(direction === 'down') {{
+                    const axis = new THREE.Vector3(1, 0, 0);
+                    newPos.applyAxisAngle(axis, -rotateAmount);
+                }}
+                
+                newPos.add(target);
+                
+                new TWEEN.Tween(camera.position)
+                    .to({{x: newPos.x, y: newPos.y, z: newPos.z}}, 400)
+                    .easing(TWEEN.Easing.Cubic.Out)
+                    .start();
+            }}
+
+            init();
+        </script>
+    </body>
+    </html>
+    """
+    components.html(html_code, height=height)
+
+# --- SIDEBAR ---
+with st.sidebar:
+    st.header("📂 Model Input")
+    st.markdown("Upload 3D scan from Scaniverse")
+    uploaded_file = st.file_uploader("", type="zip", label_visibility="collapsed")
+    
+    st.divider()
+    
+    st.header("📏 Calibration")
+    st.markdown("*Calibrate measurements using known distance*")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.number_input("Virtual (units)", key="v_dist", format="%.2f", help="Measured distance on 3D model")
+    with col2:
+        st.number_input("Real (mm)", value=20.0, key="r_dist", help="Actual physical distance")
+    
+    if st.button("⚡ Apply Calibration", use_container_width=True):
+        v = st.session_state.v_dist
+        if v > 0:
+            s = st.session_state.r_dist / v
+            st.session_state['scale_factor'] = s
+            st.success(f"✓ Scale factor: {s:.4f}")
+        else:
+            st.error("Virtual distance must be > 0")
+    
+    st.divider()
+    
+    st.markdown("### 🎯 Quick Guide")
+    st.markdown("""
+    **Tools:**
+    - 🖱️ **View**: Rotate and zoom model
+    - 🖌️ **Brush**: Freehand marking on surface
+    - 📏 **Line**: Straight surgical lines
+    - 📐 **Distance**: Measure between points (mm)
+    - 📊 **Angle**: Measure angles (degrees)
+    
+    **Navigation:**
+    - **View buttons**: Jump to standard anatomical views
+    - **Arrow controls**: Manual fine rotation
+    - **Front**: Direct facial view
+    - **Left/Right**: Profile views from each side
+    
+    **Tips:**
+    - Calibrate first for accurate measurements
+    - Adjust Surface Offset if lines float/sink
+    - Use medical color presets for clarity
+    """)
+
+# --- MAIN AREA ---
+if uploaded_file:
+    st.cache_data.clear()
+    with st.spinner("🔄 Loading surgical planning studio..."):
+        obj, mtl, err = process_file_high_quality(uploaded_file)
+    
+    if err:
+        st.error(err)
+    else:
+        render_studio_viewer(obj, mtl, st.session_state['scale_factor'], height=750)
+else:
+    st.info("👆 Upload a Scaniverse .zip file to begin surgical planning")
+    st.markdown("""
+    ### Welcome to HIDU Surgical Planning Studio
+    
+    This professional-grade tool allows you to:
+    - ✨ Draw precise surgical markings directly on 3D surface anatomy
+    - 📏 Measure distances and angles with medical accuracy
+    - 🎨 Use medical-standard color coding
+    - 💾 Plan procedures with photorealistic visualization
+    
+    **Optimized for:**
+    - Rhinoplasty planning
+    - Facial reconstructive surgery
+    - Orthognathic surgery
+    - Dental implant planning
+    """)
