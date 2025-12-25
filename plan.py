@@ -195,6 +195,31 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 border-bottom: 2px solid rgba(255,255,255,0.2);
                 padding-bottom: 10px;
                 margin-bottom: 5px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }}
+            
+            .close-panel-btn {{
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                background: rgba(255,255,255,0.2);
+                border: none;
+                color: white;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s;
+                font-size: 18px;
+                line-height: 1;
+                padding: 0;
+            }}
+            
+            .close-panel-btn:hover {{
+                background: rgba(244,67,54,0.8);
+                transform: scale(1.1);
             }}
             
             .setting-row {{ 
@@ -323,6 +348,32 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 border: 2px solid rgba(255,255,255,0.3);
                 min-width: 120px;
                 touch-action: none;
+                user-select: none;
+                transition: box-shadow 0.2s;
+            }}
+            
+            .annotation-label:hover {{
+                box-shadow: 0 6px 20px rgba(33,150,243,0.6);
+                border-color: rgba(255,255,255,0.5);
+            }}
+            
+            .annotation-label.dragging {{
+                opacity: 0.8;
+                box-shadow: 0 8px 24px rgba(33,150,243,0.8);
+                transform: scale(1.05);
+                cursor: grabbing;
+            }}
+            
+            .annotation-header {{
+                display: flex;
+                align-items: center;
+                margin-bottom: 4px;
+                cursor: grab;
+                padding: 2px 0;
+            }}
+            
+            .annotation-header:active {{
+                cursor: grabbing;
             }}
             
             .annotation-number {{
@@ -477,7 +528,10 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
 
         <!-- SETTINGS PANEL -->
         <div class="settings-panel" id="settings">
-            <div class="panel-header" id="tool-name">TOOL SETTINGS</div>
+            <div class="panel-header">
+                <span id="tool-name">TOOL SETTINGS</span>
+                <button class="close-panel-btn" onclick="toggleSettingsPanel()" title="Hide Settings (Click tool again to show)">×</button>
+            </div>
             
             <!-- Medical Color Presets -->
             <div>
@@ -594,6 +648,9 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             // Annotation State
             let annotationCounter = 1;
             let annotations = [];
+            let draggedAnnotation = null;
+            let dragOffset = {{ x: 0, y: 0 }};
+            let isDraggingAnnotation = false;
             
             // Measurement State
             let measurePoints = [];
@@ -611,6 +668,8 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 opacity: 0.95,
                 offsetFactor: 0.0001
             }};
+            
+            let settingsPanelVisible = false;
 
             function init() {{
                 scene = new THREE.Scene();
@@ -766,6 +825,12 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
 
             // --- TOOL SYSTEM ---
             window.selectTool = function(tool) {{
+                // Toggle settings panel if clicking same tool
+                if(currentTool === tool && tool !== 'view') {{
+                    toggleSettingsPanel();
+                    return;
+                }}
+                
                 currentTool = tool;
                 resetTemp();
                 
@@ -784,11 +849,13 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     document.body.style.cursor = 'default';
                     controls.enabled = true;
                     sPanel.style.display = 'none';
+                    settingsPanelVisible = false;
                     hud.classList.remove('visible');
                 }} else {{
                     document.body.style.cursor = 'crosshair';
                     controls.enabled = false;
                     sPanel.style.display = 'flex';
+                    settingsPanelVisible = true;
                     hud.classList.add('visible');
                     
                     if(tool === 'brush') {{ 
@@ -821,6 +888,12 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                         document.getElementById('measure-label').innerText = "ANGLE";
                     }}
                 }}
+            }}
+            
+            window.toggleSettingsPanel = function() {{
+                const sPanel = document.getElementById('settings');
+                settingsPanelVisible = !settingsPanelVisible;
+                sPanel.style.display = settingsPanelVisible ? 'flex' : 'none';
             }}
 
             window.setColor = function(element) {{
@@ -1399,11 +1472,12 @@ with st.sidebar:
     - **Front**: Direct facial view
     - **Left/Right**: Profile views
     
-    **iPad Tips:**
-    - Smooth continuous drawing supported
-    - Touch optimized interface
-    - No context menu interruptions
-    - Annotations are numbered automatically
+    **Annotation Tips:**
+    - 📍 **Click** to place numbered marker
+    - 🖱️ **Drag header** to reposition label
+    - 📝 **Type notes** in text field
+    - ✨ Label follows 3D point when rotating
+    - 📌 Custom position stays after moving
     """)
 
 # --- MAIN AREA ---
