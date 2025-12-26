@@ -639,6 +639,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             let tempMeshes = [];
             let drawnObjects = [];
             let lastDrawTime = 0;
+            let lastDownTime = 0;
             
             // Eraser State
             let isErasing = false;
@@ -958,6 +959,9 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
 
             // --- INTERACTION ---
             function onDown(event) {{
+                const now = Date.now();
+                if (now - lastDownTime < 50) return; 
+                lastDownTime = now;
                 if (currentTool === 'view' || event.button !== 0) return;
 
                 const hits = getIntersects(event);
