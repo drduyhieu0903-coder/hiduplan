@@ -332,59 +332,54 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             }}
             .info-hud.visible {{ opacity: 1; }}
 
-            /* ANNOTATION LABEL */
+            /* ANNOTATION LABEL - CẬP NHẬT MỚI */
             .annotation-label {{
                 position: absolute;
-                background: rgba(33, 150, 243, 0.95);
                 color: white;
-                padding: 8px 12px;
                 border-radius: 8px;
                 font-size: 12px;
                 font-weight: 600;
                 pointer-events: all;
-                cursor: move;
-                z-index: 1000;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-                border: 2px solid rgba(255,255,255,0.3);
-                min-width: 120px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                border: 1px solid rgba(255,255,255,0.4);
+                min-width: 140px;
                 touch-action: none;
                 user-select: none;
-                transition: box-shadow 0.2s;
-            }}
-            
-            .annotation-label:hover {{
-                box-shadow: 0 6px 20px rgba(33,150,243,0.6);
-                border-color: rgba(255,255,255,0.5);
-            }}
-            
-            .annotation-label.dragging {{
-                opacity: 0.8;
-                box-shadow: 0 8px 24px rgba(33,150,243,0.8);
-                transform: scale(1.05);
-                cursor: grabbing;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                transition: transform 0.1s;
+                z-index: 1000;
             }}
             
             .annotation-header {{
+                padding: 6px 10px;
+                cursor: grab;
                 display: flex;
                 align-items: center;
-                margin-bottom: 4px;
-                cursor: grab;
-                padding: 2px 0;
+                justify-content: space-between;
+                background: rgba(0,0,0,0.2);
             }}
-            
+
             .annotation-header:active {{
                 cursor: grabbing;
             }}
             
+            .annotation-body {{
+                padding: 8px;
+                background: inherit;
+            }}
+            
             .annotation-number {{
-                display: inline-block;
-                width: 24px;
-                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 20px;
+                height: 20px;
                 background: white;
-                color: #2196f3;
+                color: #333;
                 border-radius: 50%;
-                text-align: center;
-                line-height: 24px;
+                font-size: 11px;
                 font-weight: bold;
                 margin-right: 8px;
             }}
@@ -392,19 +387,19 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             .annotation-input {{
                 background: rgba(255,255,255,0.2);
                 border: 1px solid rgba(255,255,255,0.3);
-                color: white;
+                color: inherit;
                 padding: 4px 8px;
                 border-radius: 4px;
-                margin-top: 6px;
                 width: 100%;
                 font-size: 11px;
+                outline: none;
             }}
             
             .annotation-input::placeholder {{
                 color: rgba(255,255,255,0.6);
             }}
 
-            /* VIEW NAVIGATION */
+            /* VIEW NAVIGATION - WITH TOGGLE */
             .nav-panel {{
                 position: absolute; top: 20px; right: 20px;
                 background: linear-gradient(135deg, rgba(13, 71, 161, 0.95), rgba(25, 118, 210, 0.95));
@@ -414,6 +409,44 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 border: 2px solid rgba(255,255,255,0.15);
                 box-shadow: 0 8px 32px rgba(0,0,0,0.4);
                 touch-action: none;
+                transition: all 0.3s;
+            }}
+            
+            .nav-panel.collapsed {{
+                padding: 8px;
+                width: 50px;
+            }}
+            
+            .nav-toggle-btn {{
+                position: absolute;
+                top: -10px;
+                right: -10px;
+                width: 30px;
+                height: 30px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #2196f3, #1976d2);
+                border: 2px solid rgba(255,255,255,0.3);
+                color: white;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 18px;
+                z-index: 10;
+                transition: all 0.3s;
+            }}
+            
+            .nav-toggle-btn:hover {{
+                transform: scale(1.1);
+                box-shadow: 0 4px 12px rgba(33,150,243,0.6);
+            }}
+            
+            .nav-content {{
+                transition: all 0.3s;
+            }}
+            
+            .nav-content.hidden {{
+                display: none;
             }}
             
             .nav-grid {{
@@ -530,7 +563,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
         <div class="settings-panel" id="settings">
             <div class="panel-header">
                 <span id="tool-name">TOOL SETTINGS</span>
-                <button class="close-panel-btn" onclick="toggleSettingsPanel()" title="Hide Settings (Click tool again to show)">×</button>
+                <button class="close-panel-btn" onclick="toggleSettingsPanel()" title="Hide Settings">×</button>
             </div>
             
             <!-- Medical Color Presets -->
@@ -552,8 +585,8 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             
             <div class="setting-row">
                 <span class="setting-label">Line Width</span>
-                <input type="range" id="p-width" class="slider" min="0.002" max="0.012" step="0.001" value="0.003" oninput="updateSettings()">
-                <span class="value-display" id="width-val">3</span>
+                <input type="range" id="p-width" class="slider" min="0.001" max="0.008" step="0.0005" value="0.002" oninput="updateSettings()">
+                <span class="value-display" id="width-val">2</span>
             </div>
             
             <div class="setting-row" id="eraser-size-row" style="display:none;">
@@ -585,44 +618,50 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
 
         <div id="info-hud" class="info-hud">Select a tool to start</div>
 
-        <!-- VIEW NAVIGATION -->
-        <div class="nav-panel">
-            <div class="nav-grid">
-                <div class="nav-btn" onclick="setView('top')">TOP</div>
-                <div></div>
-                <div></div>
-                
-                <div class="nav-btn" onclick="setView('left')">LEFT</div>
-                <div class="nav-btn center">VIEW</div>
-                <div class="nav-btn" onclick="setView('right')">RIGHT</div>
-                
-                <div></div>
-                <div class="nav-btn" onclick="setView('front')">FRONT</div>
-                <div class="nav-btn" onclick="setView('bottom')">BOT</div>
+        <!-- VIEW NAVIGATION WITH TOGGLE -->
+        <div class="nav-panel" id="nav-panel">
+            <div class="nav-toggle-btn" onclick="toggleNavPanel()" title="Toggle Navigation Panel">
+                <i class="material-icons" id="nav-toggle-icon">remove</i>
             </div>
             
-            <div style="height: 2px; background: rgba(255,255,255,0.2); margin: 10px 0;"></div>
-            
-            <div class="rotate-controls">
-                <div></div>
-                <div class="rotate-btn" onclick="rotateCamera('up')">
-                    <i class="material-icons">arrow_upward</i>
-                </div>
-                <div></div>
-                
-                <div class="rotate-btn" onclick="rotateCamera('left')">
-                    <i class="material-icons">arrow_back</i>
-                </div>
-                <div></div>
-                <div class="rotate-btn" onclick="rotateCamera('right')">
-                    <i class="material-icons">arrow_forward</i>
+            <div class="nav-content" id="nav-content">
+                <div class="nav-grid">
+                    <div class="nav-btn" onclick="setView('top')">TOP</div>
+                    <div></div>
+                    <div></div>
+                    
+                    <div class="nav-btn" onclick="setView('left')">LEFT</div>
+                    <div class="nav-btn center">VIEW</div>
+                    <div class="nav-btn" onclick="setView('right')">RIGHT</div>
+                    
+                    <div></div>
+                    <div class="nav-btn" onclick="setView('front')">FRONT</div>
+                    <div class="nav-btn" onclick="setView('bottom')">BOT</div>
                 </div>
                 
-                <div></div>
-                <div class="rotate-btn" onclick="rotateCamera('down')">
-                    <i class="material-icons">arrow_downward</i>
+                <div style="height: 2px; background: rgba(255,255,255,0.2); margin: 10px 0;"></div>
+                
+                <div class="rotate-controls">
+                    <div></div>
+                    <div class="rotate-btn" onclick="rotateCamera('up')">
+                        <i class="material-icons">arrow_upward</i>
+                    </div>
+                    <div></div>
+                    
+                    <div class="rotate-btn" onclick="rotateCamera('left')">
+                        <i class="material-icons">arrow_back</i>
+                    </div>
+                    <div></div>
+                    <div class="rotate-btn" onclick="rotateCamera('right')">
+                        <i class="material-icons">arrow_forward</i>
+                    </div>
+                    
+                    <div></div>
+                    <div class="rotate-btn" onclick="rotateCamera('down')">
+                        <i class="material-icons">arrow_downward</i>
+                    </div>
+                    <div></div>
                 </div>
-                <div></div>
             </div>
         </div>
 
@@ -639,11 +678,10 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             let tempMeshes = [];
             let drawnObjects = [];
             let lastDrawTime = 0;
-            let lastDownTime = 0;
             
             // Eraser State
             let isErasing = false;
-            let eraserRadius = 0.05; // Relative to currentZoom
+            let eraserRadius = 0.05;
             let eraserCursor = null;
             
             // Annotation State
@@ -661,16 +699,18 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             let touchStartTime = 0;
             let longPressTimer = null;
             
+            // UI State
+            let settingsPanelVisible = false;
+            let navPanelExpanded = true;
+            
             // Settings
             let settings = {{
                 color: 0x9C27B0,
                 colorHex: '#9C27B0',
-                lineWidth: 0.003,
+                lineWidth: 0.002,
                 opacity: 0.95,
                 offsetFactor: 0.0001
             }};
-            
-            let settingsPanelVisible = false;
 
             function init() {{
                 scene = new THREE.Scene();
@@ -730,16 +770,13 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 // Event Listeners - iPad optimized
                 const canvas = renderer.domElement;
                 
-                // Prevent context menu and default touch behaviors
                 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
                 document.addEventListener('contextmenu', (e) => e.preventDefault());
                 
-                // Touch events for iPad
                 canvas.addEventListener('touchstart', onTouchStart, {{ passive: false }});
                 canvas.addEventListener('touchmove', onTouchMove, {{ passive: false }});
                 canvas.addEventListener('touchend', onTouchEnd, {{ passive: false }});
                 
-                // Mouse events for desktop
                 canvas.addEventListener('pointerdown', onDown);
                 canvas.addEventListener('pointermove', onMove);
                 canvas.addEventListener('pointerup', onUp);
@@ -768,13 +805,11 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 
                 touchStartTime = Date.now();
                 
-                // Clear any existing long press timer
                 if(longPressTimer) {{
                     clearTimeout(longPressTimer);
                     longPressTimer = null;
                 }}
                 
-                // Single touch - treat as pointer down
                 if(event.touches.length === 1 && currentTool !== 'view') {{
                     const touch = event.touches[0];
                     const fakeEvent = {{
@@ -790,7 +825,6 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 event.preventDefault();
                 event.stopPropagation();
                 
-                // Clear long press if moving
                 if(longPressTimer) {{
                     clearTimeout(longPressTimer);
                     longPressTimer = null;
@@ -817,7 +851,6 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 
                 const touchDuration = Date.now() - touchStartTime;
                 
-                // Only trigger onUp if it was a quick tap (not a long press)
                 if(touchDuration < 500 && currentTool !== 'view') {{
                     const fakeEvent = {{ button: 0 }};
                     onUp(fakeEvent);
@@ -826,7 +859,6 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
 
             // --- TOOL SYSTEM ---
             window.selectTool = function(tool) {{
-                // Toggle settings panel if clicking same tool
                 if(currentTool === tool && tool !== 'view') {{
                     toggleSettingsPanel();
                     return;
@@ -861,11 +893,11 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     
                     if(tool === 'brush') {{ 
                         tName.innerText = "SURFACE BRUSH"; 
-                        hud.innerText = "Click and drag to draw continuously on surface"; 
+                        hud.innerText = "Click and drag to draw continuously"; 
                     }}
                     else if(tool === 'eraser') {{
                         tName.innerText = "ERASER TOOL";
-                        hud.innerText = "Click and drag to erase lines and annotations";
+                        hud.innerText = "Click and drag to erase";
                         createEraserCursor();
                     }}
                     else if(tool === 'line') {{ 
@@ -874,17 +906,17 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     }}
                     else if(tool === 'annotation') {{
                         tName.innerText = "ANNOTATION TOOL";
-                        hud.innerText = "Click to place numbered annotation marker";
+                        hud.innerText = "Click to place numbered marker";
                     }}
                     else if(tool === 'distance') {{ 
                         tName.innerText = "DISTANCE MEASUREMENT"; 
-                        hud.innerText = "Click two points to measure distance";
+                        hud.innerText = "Click two points to measure";
                         measureBox.style.display = 'block';
                         document.getElementById('measure-label').innerText = "DISTANCE";
                     }}
                     else if(tool === 'angle') {{ 
                         tName.innerText = "ANGLE MEASUREMENT"; 
-                        hud.innerText = "Click 3 points: Vertex → Point 1 → Point 2";
+                        hud.innerText = "Click: A (green) → B (red vertex) → C (blue)";
                         measureBox.style.display = 'block';
                         document.getElementById('measure-label').innerText = "ANGLE";
                     }}
@@ -895,6 +927,24 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 const sPanel = document.getElementById('settings');
                 settingsPanelVisible = !settingsPanelVisible;
                 sPanel.style.display = settingsPanelVisible ? 'flex' : 'none';
+            }}
+            
+            window.toggleNavPanel = function() {{
+                const panel = document.getElementById('nav-panel');
+                const content = document.getElementById('nav-content');
+                const icon = document.getElementById('nav-toggle-icon');
+                
+                navPanelExpanded = !navPanelExpanded;
+                
+                if(navPanelExpanded) {{
+                    panel.classList.remove('collapsed');
+                    content.classList.remove('hidden');
+                    icon.innerText = 'remove';
+                }} else {{
+                    panel.classList.add('collapsed');
+                    content.classList.add('hidden');
+                    icon.innerText = 'add';
+                }}
             }}
 
             window.setColor = function(element) {{
@@ -909,11 +959,10 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 settings.opacity = parseFloat(document.getElementById('p-opacity').value);
                 settings.offsetFactor = parseFloat(document.getElementById('p-offset').value);
                 
-                document.getElementById('width-val').innerText = (settings.lineWidth * 1000).toFixed(0);
+                document.getElementById('width-val').innerText = (settings.lineWidth * 1000).toFixed(1);
                 document.getElementById('opacity-val').innerText = settings.opacity.toFixed(2);
                 document.getElementById('offset-val').innerText = settings.offsetFactor.toFixed(5);
                 
-                // Update eraser size
                 if(document.getElementById('p-eraser')) {{
                     eraserRadius = parseFloat(document.getElementById('p-eraser').value);
                     document.getElementById('eraser-val').innerText = (eraserRadius * 100).toFixed(0);
@@ -959,9 +1008,6 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
 
             // --- INTERACTION ---
             function onDown(event) {{
-                const now = Date.now();
-                if (now - lastDownTime < 50) return; 
-                lastDownTime = now;
                 if (currentTool === 'view' || event.button !== 0) return;
 
                 const hits = getIntersects(event);
@@ -1004,7 +1050,6 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             }}
 
             function onMove(event) {{
-                // Update eraser cursor position
                 if(currentTool === 'eraser' && eraserCursor) {{
                     const hits = getIntersects(event);
                     if(hits.length > 0) {{
@@ -1018,7 +1063,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 if (!isDrawing && !isErasing) return;
 
                 const now = Date.now();
-                if(now - lastDrawTime < 16) return; // Throttle to ~60fps
+                if(now - lastDrawTime < 16) return;
                 lastDrawTime = now;
 
                 const hits = getIntersects(event);
@@ -1028,7 +1073,6 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     if (currentTool === 'brush') {{
                         const lastPoint = drawPoints[drawPoints.length - 1];
                         
-                        // Smooth continuous drawing with smaller threshold
                         if(point.distanceTo(lastPoint) > currentZoom * 0.001) {{
                             const projected = projectPointsOnSurface(lastPoint, point, 2);
                             drawPoints.push(...projected);
@@ -1045,7 +1089,6 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 if (isDrawing && currentTool === 'brush') {{
                     isDrawing = false;
                     
-                    // Finalize the stroke
                     if (tempMeshes.length > 0) {{
                         tempMeshes.forEach(m => drawnObjects.push(m));
                         tempMeshes = [];
@@ -1060,13 +1103,11 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
 
             // --- DRAWING TOOLS ---
             function updateBrushStroke() {{
-                // Remove old temp meshes
                 tempMeshes.forEach(m => scene.remove(m));
                 tempMeshes = [];
                 
                 if(drawPoints.length < 2) return;
                 
-                // Create tube geometry for thickness
                 const path = new THREE.CatmullRomCurve3(drawPoints);
                 const tubeGeo = new THREE.TubeGeometry(path, drawPoints.length * 2, settings.lineWidth * currentZoom, 8, false);
                 const tubeMat = new THREE.MeshBasicMaterial({{
@@ -1098,8 +1139,10 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 drawnObjects.push(tube);
             }}
 
-            function addMarker(point, color) {{
-                const geo = new THREE.SphereGeometry(currentZoom * 0.002, 16, 16);
+            function addMarker(point, color, isVertex = false) {{
+                // Vertex marker lớn hơn để nổi bật
+                const size = isVertex ? currentZoom * 0.0035 : currentZoom * 0.002;
+                const geo = new THREE.SphereGeometry(size, 16, 16);
                 const mat = new THREE.MeshBasicMaterial({{ color: color, depthTest: false }});
                 const marker = new THREE.Mesh(geo, mat);
                 marker.position.copy(point);
@@ -1108,70 +1151,120 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 measureMarkers.push(marker);
             }}
 
-            // --- ANNOTATION TOOL ---
+            // --- ANNOTATION TOOL (CẬP NHẬT: MÀU & DI CHUYỂN) ---
             function createAnnotation(point3D, event) {{
-                // Create 3D marker
+                // 1. Tạo marker 3D với màu hiện tại
                 const markerGeo = new THREE.SphereGeometry(currentZoom * 0.003, 16, 16);
-                const markerMat = new THREE.MeshBasicMaterial({{ color: 0x2196f3, depthTest: false }});
+                const markerMat = new THREE.MeshBasicMaterial({{ color: settings.color, depthTest: false }});
                 const marker = new THREE.Mesh(markerGeo, markerMat);
                 marker.position.copy(point3D);
                 marker.renderOrder = 1001;
                 scene.add(marker);
                 
-                // Create HTML label
+                // 2. Tạo HTML label
                 const label = document.createElement('div');
                 label.className = 'annotation-label';
+                label.style.background = settings.colorHex;
+                
+                // Đổi màu chữ nếu nền quá sáng
+                if(settings.colorHex === '#FFFFFF' || settings.colorHex === '#FFEB3B') {{
+                    label.style.color = '#333';
+                }}
+                
                 label.innerHTML = `
-                    <span class="annotation-number">${{annotationCounter}}</span>
-                    <input type="text" 
-                           class="annotation-input" 
-                           placeholder="Enter note..."
-                           onkeydown="event.stopPropagation()"
-                           ontouchstart="event.stopPropagation()"
-                           ontouchmove="event.stopPropagation()">
+                    <div class="annotation-header" onmousedown="startDragAnnotation(event, ${{annotationCounter}})">
+                        <div style="display:flex; align-items:center;">
+                            <span class="annotation-number" style="background:${{settings.colorHex}}; color:#fff;">${{annotationCounter}}</span>
+                            <span style="font-size:11px;">Note #${{annotationCounter}}</span>
+                        </div>
+                        <i class="material-icons" style="font-size:14px; opacity:0.7;">open_with</i>
+                    </div>
+                    <div class="annotation-body">
+                        <input type="text" 
+                               class="annotation-input" 
+                               placeholder="Enter note..."
+                               onkeydown="event.stopPropagation()"
+                               onmousedown="event.stopPropagation()"
+                               ontouchstart="event.stopPropagation()">
+                    </div>
                 `;
                 
                 document.body.appendChild(label);
                 
-                // Position label
-                const screenPos = toScreenPosition(point3D);
-                label.style.left = screenPos.x + 'px';
-                label.style.top = screenPos.y + 'px';
-                
-                // Store annotation data
                 const annotation = {{
                     id: annotationCounter,
                     point3D: point3D,
                     marker: marker,
-                    label: label
+                    label: label,
+                    offsetX: 20,
+                    offsetY: -40
                 }};
+                
                 annotations.push(annotation);
                 drawnObjects.push(marker);
-                
                 annotationCounter++;
                 
-                // Update label position on render
                 function updateLabelPosition() {{
                     if(!label.parentElement) return;
+                    
                     const pos = toScreenPosition(point3D);
-                    label.style.left = pos.x + 'px';
-                    label.style.top = pos.y + 'px';
+                    const finalX = pos.x + annotation.offsetX;
+                    const finalY = pos.y + annotation.offsetY;
+                    
+                    label.style.left = finalX + 'px';
+                    label.style.top = finalY + 'px';
+                    
                     requestAnimationFrame(updateLabelPosition);
                 }}
                 updateLabelPosition();
             }}
-
-            // ==========================================
-            // ERASER TOOL - CHÈN HÀM TẨY Ở ĐÂY
-            // ==========================================
             
+            // --- ANNOTATION DRAGGING ---
+            window.startDragAnnotation = function(event, id) {{
+                event.preventDefault();
+                event.stopPropagation();
+                
+                const ann = annotations.find(a => a.id === id);
+                if(ann) {{
+                    draggedAnnotation = ann;
+                    isDraggingAnnotation = true;
+                    dragOffset.x = event.clientX;
+                    dragOffset.y = event.clientY;
+                    ann.label.style.zIndex = 10000;
+                }}
+            }};
+            
+            window.addEventListener('pointermove', function(event) {{
+                if (isDraggingAnnotation && draggedAnnotation) {{
+                    event.preventDefault();
+                    
+                    const deltaX = event.clientX - dragOffset.x;
+                    const deltaY = event.clientY - dragOffset.y;
+                    
+                    draggedAnnotation.offsetX += deltaX;
+                    draggedAnnotation.offsetY += deltaY;
+                    
+                    dragOffset.x = event.clientX;
+                    dragOffset.y = event.clientY;
+                }}
+            }});
+            
+            window.addEventListener('pointerup', function(event) {{
+                if (isDraggingAnnotation) {{
+                    isDraggingAnnotation = false;
+                    if(draggedAnnotation) {{
+                        draggedAnnotation.label.style.zIndex = 1000;
+                        draggedAnnotation = null;
+                    }}
+                }}
+            }});
+
+            // --- ERASER TOOL ---
             function createEraserCursor() {{
-                // Remove old cursor if exists
                 if(eraserCursor) {{
                     scene.remove(eraserCursor);
                 }}
                 
-                // Create semi-transparent sphere as eraser cursor
                 const geo = new THREE.SphereGeometry(1, 32, 32);
                 const mat = new THREE.MeshBasicMaterial({{
                     color: 0xff5252,
@@ -1186,24 +1279,19 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 eraserCursor.visible = false;
                 scene.add(eraserCursor);
                 
-                // Show/hide eraser size slider
                 document.getElementById('eraser-size-row').style.display = 'flex';
             }}
             
             function eraseAtPoint(point) {{
                 const eraseRadiusWorld = eraserRadius * currentZoom;
-                let erasedSomething = false;
                 
-                // Check all drawn objects
                 for(let i = drawnObjects.length - 1; i >= 0; i--) {{
                     const obj = drawnObjects[i];
                     
-                    // Check if object is within eraser radius
                     if(obj.geometry && obj.geometry.attributes && obj.geometry.attributes.position) {{
                         const positions = obj.geometry.attributes.position.array;
                         let shouldErase = false;
                         
-                        // Check vertices
                         for(let j = 0; j < positions.length; j += 3) {{
                             const vertex = new THREE.Vector3(
                                 positions[j],
@@ -1211,10 +1299,8 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                                 positions[j + 2]
                             );
                             
-                            // Transform to world space
                             vertex.applyMatrix4(obj.matrixWorld);
                             
-                            // Check distance to eraser point
                             if(vertex.distanceTo(point) < eraseRadiusWorld) {{
                                 shouldErase = true;
                                 break;
@@ -1226,7 +1312,6 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                             if(obj.geometry) obj.geometry.dispose();
                             if(obj.material) obj.material.dispose();
                             
-                            // Remove annotation label if exists
                             const annotation = annotations.find(a => a.marker === obj);
                             if(annotation) {{
                                 annotation.label.remove();
@@ -1234,17 +1319,14 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                             }}
                             
                             drawnObjects.splice(i, 1);
-                            erasedSomething = true;
                         }}
                     }}
-                    // Handle sphere markers (annotations, measurements)
                     else if(obj.type === 'Mesh' && obj.geometry && obj.geometry.type === 'SphereGeometry') {{
                         if(obj.position.distanceTo(point) < eraseRadiusWorld) {{
                             scene.remove(obj);
                             if(obj.geometry) obj.geometry.dispose();
                             if(obj.material) obj.material.dispose();
                             
-                            // Remove annotation label if exists
                             const annotation = annotations.find(a => a.marker === obj);
                             if(annotation) {{
                                 annotation.label.remove();
@@ -1252,17 +1334,10 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                             }}
                             
                             drawnObjects.splice(i, 1);
-                            erasedSomething = true;
                         }}
                     }}
                 }}
-                
-                return erasedSomething;
             }}
-            
-            // ==========================================
-            // KẾT THÚC ERASER TOOL
-            // ==========================================
 
             function toScreenPosition(point3D) {{
                 const vector = point3D.clone();
@@ -1287,33 +1362,59 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 }}, 3000);
             }}
 
+            // --- ANGLE MEASUREMENT (CORRECTED: A-B-C LOGIC) ---
             function handleAngleMeasurement(point) {{
                 measurePoints.push(point);
-                addMarker(point, 0xffff00);
+                
+                // Màu marker: A=xanh lá, B (vertex)=đỏ, C=xanh dương
+                let markerColor;
+                let isVertex = false;
                 
                 if(measurePoints.length === 1) {{
-                    document.getElementById('info-hud').innerText = "Vertex set. Click Point 1";
+                    markerColor = 0x4CAF50; // Xanh lá - Point A
+                    document.getElementById('info-hud').innerText = "Point A set. Click Vertex B (góc đỉnh)";
                 }}
                 else if(measurePoints.length === 2) {{
-                    document.getElementById('info-hud').innerText = "Point 1 set. Click Point 2";
-                    drawSurfaceLine(measurePoints[0], measurePoints[1]);
+                    markerColor = 0xFF0000; // Đỏ - Vertex B
+                    isVertex = true; // Marker lớn hơn để nổi bật
+                    document.getElementById('info-hud').innerText = "Vertex B set. Click Point C";
+                    
+                    // Vẽ cạnh BA (từ B về A)
+                    drawSurfaceLine(measurePoints[1], measurePoints[0]);
                 }}
                 else if(measurePoints.length === 3) {{
-                    const v1 = measurePoints[1].clone().sub(measurePoints[0]).normalize();
-                    const v2 = measurePoints[2].clone().sub(measurePoints[0]).normalize();
-                    const angle = THREE.MathUtils.radToDeg(v1.angleTo(v2));
+                    markerColor = 0x2196F3; // Xanh dương - Point C
                     
-                    document.getElementById('measure-value').innerText = angle.toFixed(1) + '°';
-                    document.getElementById('info-hud').innerText = "Angle measured";
+                    // Lấy 3 điểm: A, B (vertex), C
+                    const pointA = measurePoints[0];
+                    const pointB = measurePoints[1]; // Đỉnh góc
+                    const pointC = measurePoints[2];
                     
-                    drawSurfaceLine(measurePoints[0], measurePoints[2]);
+                    // Tính 2 vector từ đỉnh B
+                    const vectorBA = pointA.clone().sub(pointB).normalize();
+                    const vectorBC = pointC.clone().sub(pointB).normalize();
                     
+                    // Tính góc giữa 2 vector (góc tại đỉnh B)
+                    const angleRad = vectorBA.angleTo(vectorBC);
+                    const angleDeg = THREE.MathUtils.radToDeg(angleRad);
+                    
+                    // Hiển thị kết quả
+                    document.getElementById('measure-value').innerText = angleDeg.toFixed(1) + '°';
+                    document.getElementById('info-hud').innerText = `∠ABC = ${{angleDeg.toFixed(1)}}° (B is vertex)`;
+                    
+                    // Vẽ cạnh BC (từ B đến C)
+                    drawSurfaceLine(measurePoints[1], measurePoints[2]);
+                    
+                    // Xóa markers sau 5 giây
                     setTimeout(() => {{
                         measureMarkers.forEach(m => scene.remove(m));
                         measureMarkers = [];
                         measurePoints = [];
-                    }}, 4000);
+                    }}, 5000);
                 }}
+                
+                // Thêm marker với màu tương ứng (vertex B lớn hơn)
+                addMarker(point, markerColor, isVertex);
             }}
 
             // --- UTILITIES ---
@@ -1324,7 +1425,6 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     if(obj.geometry) obj.geometry.dispose();
                     if(obj.material) obj.material.dispose();
                     
-                    // Remove annotation label if it exists
                     const annotation = annotations.find(a => a.marker === obj);
                     if(annotation) {{
                         annotation.label.remove();
@@ -1356,7 +1456,6 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 isDrawing = false;
                 isErasing = false;
                 
-                // Hide eraser cursor and settings
                 if(eraserCursor) {{
                     eraserCursor.visible = false;
                 }}
@@ -1457,31 +1556,33 @@ with st.sidebar:
     
     st.divider()
     
-    st.markdown("### 🎯 Quick Guide")
+    st.markdown("### 🎯 Feature Guide")
     st.markdown("""
     **Drawing Tools:**
-    - 🖱️ **View**: Rotate and zoom model
-    - 🖌️ **Brush**: Freehand continuous marking
-    - 🧹 **Eraser**: Remove lines and annotations
+    - 🖱️ **View**: Rotate and zoom
+    - 🖌️ **Brush**: Freehand drawing (adjustable width)
+    - 🧹 **Eraser**: Remove markings
     - 📏 **Line**: Straight surgical lines
-    - 📍 **Annotation**: Place numbered notes
+    - 📍 **Annotation**: Colored markers with notes
     
-    **Measurement Tools:**
-    - 📐 **Distance**: Measure between points (mm)
-    - 📊 **Angle**: Measure angles (degrees)
+    **Measurement Guide:**
+    - 📐 **Distance**: Click 2 points (red markers)
+    - 📊 **Angle**: 3-step process
+      1. Click **Point A** (green marker)
+      2. Click **Vertex B** (red marker - angle vertex)
+      3. Click **Point C** (blue marker)
+      - Result: Angle ∠ABC at vertex B
+      - Both edges BA and BC are drawn
     
-    **Navigation:**
-    - **View buttons**: Jump to anatomical views
-    - **Arrow controls**: Manual rotation
-    - **Front**: Direct facial view
-    - **Left/Right**: Profile views
+    **UI Controls:**
+    - Click tool twice to toggle settings panel
+    - Click "−" button to collapse navigation panel
+    - Drag annotation headers to reposition
+    - Annotations inherit selected color
     
-    **Annotation Tips:**
-    - 📍 **Click** to place numbered marker
-    - 🖱️ **Drag header** to reposition label
-    - 📝 **Type notes** in text field
-    - ✨ Label follows 3D point when rotating
-    - 📌 Custom position stays after moving
+    **Line Width:**
+    - Range: 1-8 (thinner options available)
+    - Adjustable in real-time
     """)
 
 # --- MAIN AREA ---
@@ -1497,24 +1598,19 @@ if uploaded_file:
 else:
     st.info("👆 Upload a Scaniverse .zip file to begin surgical planning")
     st.markdown("""
-    ### Welcome to HIDU Surgical Planning Studio
+    ### HIDU Surgical Planning Studio
     
     **Professional Features:**
-    - ✨ Continuous smooth surface drawing
-    - 📍 Numbered annotation markers with notes
-    - 📏 Accurate distance & angle measurements
-    - 🎨 Medical-standard color coding
+    - ✨ Smooth continuous surface drawing
+    - 📍 Draggable colored annotations
+    - 📏 Accurate measurements (distance & angle)
+    - 🎨 Medical color coding
     - 📱 iPad & touch optimized
+    - 🎛️ Collapsible UI panels for maximum workspace
     
     **Optimized for:**
     - Rhinoplasty planning
     - Facial reconstructive surgery
     - Orthognathic surgery
-    - Dental implant planning
-    
-    **Perfect for iPad:**
-    - No scroll conflicts during drawing
-    - No long-press context menus
-    - Smooth continuous line rendering
-    - Touch-optimized controls
+    - Maxillofacial procedures
     """)
