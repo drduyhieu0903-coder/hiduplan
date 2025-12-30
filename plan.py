@@ -398,6 +398,87 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             .annotation-input::placeholder {{
                 color: rgba(255,255,255,0.6);
             }}
+            
+            /* FLOATING MEASUREMENT LABELS */
+            .floating-label {{
+                position: absolute;
+                background: rgba(76, 175, 80, 0.95);
+                color: white;
+                padding: 6px 12px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 700;
+                pointer-events: none;
+                z-index: 1000;
+                box-shadow: 0 3px 10px rgba(0,0,0,0.4);
+                border: 1px solid rgba(255,255,255,0.4);
+                white-space: nowrap;
+            }}
+            
+            .floating-label.distance {{
+                background: rgba(33, 150, 243, 0.95);
+            }}
+            
+            .floating-label.angle {{
+                background: rgba(255, 152, 0, 0.95);
+            }}
+            
+            /* EXPORT BUTTONS */
+            .export-panel {{
+                position: absolute;
+                bottom: 20px;
+                right: 20px;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                z-index: 100;
+            }}
+            
+            .export-btn {{
+                background: linear-gradient(135deg, rgba(76, 175, 80, 0.95), rgba(56, 142, 60, 0.95));
+                backdrop-filter: blur(15px);
+                color: white;
+                border: 2px solid rgba(255,255,255,0.3);
+                border-radius: 12px;
+                padding: 12px 20px;
+                cursor: pointer;
+                font-weight: 600;
+                font-size: 13px;
+                transition: all 0.3s;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            }}
+            
+            .export-btn:hover {{
+                transform: translateY(-2px);
+                box-shadow: 0 6px 20px rgba(76,175,80,0.5);
+            }}
+            
+            .export-btn i {{
+                font-size: 18px;
+            }}
+            
+            .export-btn.save {{
+                background: linear-gradient(135deg, rgba(33, 150, 243, 0.95), rgba(25, 118, 210, 0.95));
+            }}
+            
+            .export-btn.load {{
+                background: linear-gradient(135deg, rgba(156, 39, 176, 0.95), rgba(123, 31, 162, 0.95));
+            }}
+            
+            .export-btn:hover.save {{
+                box-shadow: 0 6px 20px rgba(33,150,243,0.5);
+            }}
+            
+            .export-btn:hover.load {{
+                box-shadow: 0 6px 20px rgba(156,39,176,0.5);
+            }}
+
+            #file-input {{
+                display: none;
+            }}
 
             /* VIEW NAVIGATION - WITH TOGGLE */
             .nav-panel {{
@@ -522,6 +603,8 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
         <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/MTLLoader.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     </head>
     <body>
         
@@ -618,6 +701,24 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
 
         <div id="info-hud" class="info-hud">Select a tool to start</div>
 
+        <!-- EXPORT PANEL -->
+        <div class="export-panel">
+            <button class="export-btn" onclick="exportPDFReport()" title="Export PDF Report">
+                <i class="material-icons">picture_as_pdf</i>
+                <span>Export PDF</span>
+            </button>
+            <button class="export-btn save" onclick="saveProject()" title="Save Project">
+                <i class="material-icons">save</i>
+                <span>Save Project</span>
+            </button>
+            <button class="export-btn load" onclick="document.getElementById('file-input').click()" title="Load Project">
+                <i class="material-icons">folder_open</i>
+                <span>Load Project</span>
+            </button>
+        </div>
+        
+        <input type="file" id="file-input" accept=".json" onchange="loadProject(event)">
+
         <!-- VIEW NAVIGATION WITH TOGGLE -->
         <div class="nav-panel" id="nav-panel">
             <div class="nav-toggle-btn" onclick="toggleNavPanel()" title="Toggle Navigation Panel">
@@ -670,6 +771,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             let currentZoom = 300; 
             let targetObject = null;
             let currentTool = 'view';
+            let lastClickTime = 0; 
             const SCALE_FACTOR = {scale_factor};
             
             // Drawing State
@@ -694,6 +796,8 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             // Measurement State
             let measurePoints = [];
             let measureMarkers = [];
+            let floatingLabels = []; // Floating measurement labels
+            let measurements = []; // Store all measurements for export
             
             // iPad touch handling
             let touchStartTime = 0;
@@ -717,7 +821,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 scene.background = new THREE.Color(0x1a1a1a);
 
                 camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
-                renderer = new THREE.WebGLRenderer({{ antialias: true }});
+                renderer = new THREE.WebGLRenderer({{ antialias: true, preserveDrawingBuffer: true }});
                 renderer.setSize(window.innerWidth, {height});
                 renderer.setPixelRatio(window.devicePixelRatio);
                 renderer.outputEncoding = THREE.sRGBEncoding;
@@ -1008,6 +1112,10 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
 
             // --- INTERACTION ---
             function onDown(event) {{
+                const now = Date.now();
+                // Nếu 2 lần chạm cách nhau dưới 300ms thì bỏ qua (chặn double tap)
+                if (now - lastClickTime < 300) return; 
+                lastClickTime = now;
                 if (currentTool === 'view' || event.button !== 0) return;
 
                 const hits = getIntersects(event);
@@ -1029,10 +1137,10 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     else if (currentTool === 'line' || currentTool === 'distance') {{
                         if(measurePoints.length === 0) {{
                             measurePoints.push(point);
-                            addMarker(point, 0xff0000);
+                            addMarker(point, 0xff0000, false);
                         }} else {{
                             measurePoints.push(point);
-                            addMarker(point, 0xff0000);
+                            addMarker(point, 0xff0000, false);
                             
                             if(currentTool === 'line') {{
                                 drawSurfaceLine(measurePoints[0], measurePoints[1]);
@@ -1349,12 +1457,51 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     y: -(vector.y - 1) / 2 * rect.height + rect.top
                 }};
             }}
+            
+            // --- FLOATING LABELS ---
+            function createFloatingLabel(point3D, text, type) {{
+                const label = document.createElement('div');
+                label.className = `floating-label ${{type}}`;
+                label.innerText = text;
+                document.body.appendChild(label);
+                
+                const labelData = {{
+                    element: label,
+                    point3D: point3D.clone(),
+                    text: text,
+                    type: type
+                }};
+                
+                floatingLabels.push(labelData);
+                
+                function updatePosition() {{
+                    if(!label.parentElement) return;
+                    const pos = toScreenPosition(point3D);
+                    label.style.left = pos.x + 'px';
+                    label.style.top = (pos.y - 30) + 'px';
+                    requestAnimationFrame(updatePosition);
+                }}
+                updatePosition();
+            }}
 
             function measureDistance(p1, p2) {{
                 const dist = p1.distanceTo(p2) * SCALE_FACTOR;
-                document.getElementById('measure-value').innerText = dist.toFixed(2) + ' mm';
+                const distText = dist.toFixed(2) + ' mm';
+                document.getElementById('measure-value').innerText = distText;
                 
                 drawSurfaceLine(p1, p2);
+                
+                // Tạo floating label
+                const midPoint = new THREE.Vector3().lerpVectors(p1, p2, 0.5);
+                createFloatingLabel(midPoint, distText, 'distance');
+                
+                // Lưu vào measurements
+                measurements.push({{
+                    type: 'distance',
+                    value: dist,
+                    unit: 'mm',
+                    points: [p1.clone(), p2.clone()]
+                }});
                 
                 setTimeout(() => {{
                     measureMarkers.forEach(m => scene.remove(m));
@@ -1398,12 +1545,25 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     const angleRad = vectorBA.angleTo(vectorBC);
                     const angleDeg = THREE.MathUtils.radToDeg(angleRad);
                     
+                    const angleText = angleDeg.toFixed(1) + '°';
+                    
                     // Hiển thị kết quả
-                    document.getElementById('measure-value').innerText = angleDeg.toFixed(1) + '°';
-                    document.getElementById('info-hud').innerText = `∠ABC = ${{angleDeg.toFixed(1)}}° (B is vertex)`;
+                    document.getElementById('measure-value').innerText = angleText;
+                    document.getElementById('info-hud').innerText = `∠ABC = ${{angleText}} (B is vertex)`;
                     
                     // Vẽ cạnh BC (từ B đến C)
                     drawSurfaceLine(measurePoints[1], measurePoints[2]);
+                    
+                    // Tạo floating label tại đỉnh B
+                    createFloatingLabel(pointB, '∠' + angleText, 'angle');
+                    
+                    // Lưu vào measurements
+                    measurements.push({{
+                        type: 'angle',
+                        value: angleDeg,
+                        unit: '°',
+                        points: [pointA.clone(), pointB.clone(), pointC.clone()]
+                    }});
                     
                     // Xóa markers sau 5 giây
                     setTimeout(() => {{
@@ -1417,6 +1577,284 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 addMarker(point, markerColor, isVertex);
             }}
 
+            // --- EXPORT PDF REPORT ---
+            window.exportPDFReport = async function() {{
+                const {{ jsPDF }} = window.jspdf;
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                
+                // Hide UI elements temporarily
+                document.querySelector('.toolbar').style.display = 'none';
+                document.querySelector('.settings-panel').style.display = 'none';
+                document.querySelector('.nav-panel').style.display = 'none';
+                document.querySelector('.export-panel').style.display = 'none';
+                document.querySelector('.info-hud').style.display = 'none';
+                
+                const captureView = async (viewName) => {{
+                    return new Promise((resolve) => {{
+                        setView(viewName);
+                        setTimeout(async () => {{
+                            const canvas = await html2canvas(document.body, {{
+                                backgroundColor: '#1a1a1a',
+                                scale: 1
+                            }});
+                            resolve(canvas.toDataURL('image/jpeg', 0.8));
+                        }}, 1000);
+                    }});
+                }};
+                
+                // Capture 3 views
+                const frontImg = await captureView('front');
+                const leftImg = await captureView('left');
+                const rightImg = await captureView('right');
+                
+                // Restore UI
+                document.querySelector('.toolbar').style.display = 'flex';
+                document.querySelector('.nav-panel').style.display = 'block';
+                document.querySelector('.export-panel').style.display = 'flex';
+                
+                // Build PDF
+                const pageWidth = 210;
+                const pageHeight = 297;
+                const margin = 15;
+                const imgWidth = (pageWidth - 3 * margin) / 2;
+                const imgHeight = imgWidth * 0.75;
+                
+                // Header
+                pdf.setFontSize(20);
+                pdf.setTextColor(33, 150, 243);
+                pdf.text('HIDU Surgical Planning Report', margin, margin + 10);
+                
+                pdf.setFontSize(10);
+                pdf.setTextColor(100);
+                const date = new Date().toLocaleDateString();
+                pdf.text(`Date: ${{date}}`, margin, margin + 18);
+                
+                // Images
+                let y = margin + 30;
+                pdf.setFontSize(12);
+                pdf.setTextColor(0);
+                
+                pdf.text('Front View', margin, y);
+                pdf.addImage(frontImg, 'JPEG', margin, y + 5, imgWidth, imgHeight);
+                
+                pdf.text('Left Profile', pageWidth - margin - imgWidth, y);
+                pdf.addImage(leftImg, 'JPEG', pageWidth - margin - imgWidth, y + 5, imgWidth, imgHeight);
+                
+                y += imgHeight + 15;
+                pdf.text('Right Profile', margin, y);
+                pdf.addImage(rightImg, 'JPEG', margin, y + 5, imgWidth, imgHeight);
+                
+                // Measurements Table
+                y += imgHeight + 20;
+                if(measurements.length > 0) {{
+                    pdf.setFontSize(14);
+                    pdf.setTextColor(33, 150, 243);
+                    pdf.text('Measurements', margin, y);
+                    y += 8;
+                    
+                    pdf.setFontSize(10);
+                    pdf.setTextColor(0);
+                    
+                    measurements.forEach((m, i) => {{
+                        const text = `${{i + 1}}. ${{m.type.toUpperCase()}}: ${{m.value.toFixed(2)}} ${{m.unit}}`;
+                        pdf.text(text, margin + 5, y);
+                        y += 6;
+                    }});
+                }}
+                
+                // Annotations
+                if(annotations.length > 0) {{
+                    y += 5;
+                    pdf.setFontSize(14);
+                    pdf.setTextColor(33, 150, 243);
+                    pdf.text('Annotations', margin, y);
+                    y += 8;
+                    
+                    pdf.setFontSize(10);
+                    pdf.setTextColor(0);
+                    
+                    annotations.forEach((a, i) => {{
+                        const input = a.label.querySelector('.annotation-input');
+                        const note = input ? input.value || '(No note)' : '(No note)';
+                        pdf.text(`${{i + 1}}. ${{note}}`, margin + 5, y);
+                        y += 6;
+                    }});
+                }}
+                
+                // Footer
+                pdf.setFontSize(8);
+                pdf.setTextColor(150);
+                pdf.text('Generated by HIDU Surgical Planning Studio', margin, pageHeight - 10);
+                
+                // Save
+                pdf.save(`surgical-plan-${{date.replace(/\\//g, '-')}}.pdf`);
+                
+                alert('PDF exported successfully!');
+            }};
+            
+            // --- SAVE PROJECT ---
+            window.saveProject = function() {{
+                const projectData = {{
+                    version: '1.0',
+                    date: new Date().toISOString(),
+                    scaleFactor: SCALE_FACTOR,
+                    drawnObjects: [],
+                    annotations: [],
+                    measurements: measurements
+                }};
+                
+                // Serialize drawn objects
+                drawnObjects.forEach(obj => {{
+                    if(obj.geometry && obj.geometry.attributes && obj.geometry.attributes.position) {{
+                        const positions = Array.from(obj.geometry.attributes.position.array);
+                        projectData.drawnObjects.push({{
+                            type: obj.geometry.type,
+                            positions: positions,
+                            color: obj.material.color.getHex(),
+                            opacity: obj.material.opacity
+                        }});
+                    }}
+                }});
+                
+                // Serialize annotations
+                annotations.forEach(a => {{
+                    const input = a.label.querySelector('.annotation-input');
+                    projectData.annotations.push({{
+                        id: a.id,
+                        point3D: {{x: a.point3D.x, y: a.point3D.y, z: a.point3D.z}},
+                        offsetX: a.offsetX,
+                        offsetY: a.offsetY,
+                        text: input ? input.value : '',
+                        color: a.marker.material.color.getHex()
+                    }});
+                }});
+                
+                // Download JSON
+                const blob = new Blob([JSON.stringify(projectData, null, 2)], {{ type: 'application/json' }});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `surgical-plan-${{new Date().toISOString().split('T')[0]}}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                
+                alert('Project saved successfully!');
+            }};
+            
+            // --- LOAD PROJECT ---
+            window.loadProject = function(event) {{
+                const file = event.target.files[0];
+                if(!file) return;
+                
+                const reader = new FileReader();
+                reader.onload = function(e) {{
+                    try {{
+                        const projectData = JSON.parse(e.target.result);
+                        
+                        // Clear current scene
+                        clearAll();
+                        
+                        // Restore drawn objects
+                        projectData.drawnObjects.forEach(objData => {{
+                            const positions = new Float32Array(objData.positions);
+                            const geometry = new THREE.BufferGeometry();
+                            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                            
+                            const material = new THREE.MeshBasicMaterial({{
+                                color: objData.color,
+                                transparent: true,
+                                opacity: objData.opacity,
+                                depthTest: false
+                            }});
+                            
+                            let mesh;
+                            if(objData.type === 'TubeGeometry') {{
+                                mesh = new THREE.Mesh(geometry, material);
+                            }} else {{
+                                mesh = new THREE.Line(geometry, material);
+                            }}
+                            
+                            mesh.renderOrder = 999;
+                            scene.add(mesh);
+                            drawnObjects.push(mesh);
+                        }});
+                        
+                        // Restore annotations
+                        projectData.annotations.forEach(aData => {{
+                            const point3D = new THREE.Vector3(aData.point3D.x, aData.point3D.y, aData.point3D.z);
+                            
+                            // Create marker
+                            const markerGeo = new THREE.SphereGeometry(currentZoom * 0.003, 16, 16);
+                            const markerMat = new THREE.MeshBasicMaterial({{ color: aData.color, depthTest: false }});
+                            const marker = new THREE.Mesh(markerGeo, markerMat);
+                            marker.position.copy(point3D);
+                            marker.renderOrder = 1001;
+                            scene.add(marker);
+                            
+                            // Create label
+                            const label = document.createElement('div');
+                            label.className = 'annotation-label';
+                            label.style.background = '#' + aData.color.toString(16).padStart(6, '0');
+                            
+                            label.innerHTML = `
+                                <div class="annotation-header" onmousedown="startDragAnnotation(event, ${{aData.id}})">
+                                    <div style="display:flex; align-items:center;">
+                                        <span class="annotation-number" style="background:#${{aData.color.toString(16).padStart(6, '0')}}; color:#fff;">${{aData.id}}</span>
+                                        <span style="font-size:11px;">Note #${{aData.id}}</span>
+                                    </div>
+                                    <i class="material-icons" style="font-size:14px; opacity:0.7;">open_with</i>
+                                </div>
+                                <div class="annotation-body">
+                                    <input type="text" 
+                                           class="annotation-input" 
+                                           placeholder="Enter note..."
+                                           value="${{aData.text}}"
+                                           onkeydown="event.stopPropagation()"
+                                           onmousedown="event.stopPropagation()">
+                                </div>
+                            `;
+                            
+                            document.body.appendChild(label);
+                            
+                            const annotation = {{
+                                id: aData.id,
+                                point3D: point3D,
+                                marker: marker,
+                                label: label,
+                                offsetX: aData.offsetX,
+                                offsetY: aData.offsetY
+                            }};
+                            
+                            annotations.push(annotation);
+                            drawnObjects.push(marker);
+                            
+                            if(aData.id >= annotationCounter) {{
+                                annotationCounter = aData.id + 1;
+                            }}
+                            
+                            function updatePos() {{
+                                if(!label.parentElement) return;
+                                const pos = toScreenPosition(point3D);
+                                label.style.left = (pos.x + annotation.offsetX) + 'px';
+                                label.style.top = (pos.y + annotation.offsetY) + 'px';
+                                requestAnimationFrame(updatePos);
+                            }}
+                            updatePos();
+                        }});
+                        
+                        // Restore measurements
+                        if(projectData.measurements) {{
+                            measurements = projectData.measurements;
+                        }}
+                        
+                        alert('Project loaded successfully!');
+                    }} catch(error) {{
+                        alert('Error loading project: ' + error.message);
+                    }}
+                }};
+                reader.readAsText(file);
+            }};
+            
             // --- UTILITIES ---
             window.undo = function() {{
                 if (drawnObjects.length > 0) {{
@@ -1438,6 +1876,15 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     while(drawnObjects.length > 0) undo();
                     resetTemp();
                     annotationCounter = 1;
+                    measurements = [];
+                    
+                    // Remove floating labels
+                    floatingLabels.forEach(l => {{
+                        if(l.element && l.element.parentElement) {{
+                            l.element.remove();
+                        }}
+                    }});
+                    floatingLabels = [];
                 }}
             }}
 
