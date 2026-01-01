@@ -404,15 +404,24 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 position: absolute;
                 background: rgba(76, 175, 80, 0.95);
                 color: white;
-                padding: 6px 12px;
-                border-radius: 6px;
-                font-size: 13px;
+                padding: 8px 14px;
+                border-radius: 8px;
+                font-size: 14px;
                 font-weight: 700;
-                pointer-events: none;
+                pointer-events: all;
                 z-index: 1000;
-                box-shadow: 0 3px 10px rgba(0,0,0,0.4);
-                border: 1px solid rgba(255,255,255,0.4);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+                border: 2px solid rgba(255,255,255,0.5);
                 white-space: nowrap;
+                cursor: grab;
+                user-select: none;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }}
+            
+            .floating-label:active {{
+                cursor: grabbing;
             }}
             
             .floating-label.distance {{
@@ -421,6 +430,34 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             
             .floating-label.angle {{
                 background: rgba(255, 152, 0, 0.95);
+            }}
+            
+            .floating-label.area {{
+                background: rgba(156, 39, 176, 0.95);
+                font-size: 15px;
+            }}
+            
+            .label-close-btn {{
+                width: 18px;
+                height: 18px;
+                border-radius: 50%;
+                background: rgba(244, 67, 54, 0.9);
+                border: none;
+                color: white;
+                font-size: 12px;
+                font-weight: bold;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s;
+                padding: 0;
+                line-height: 1;
+            }}
+            
+            .label-close-btn:hover {{
+                background: rgba(244, 67, 54, 1);
+                transform: scale(1.1);
             }}
             
             /* EXPORT BUTTONS */
@@ -771,7 +808,6 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             let currentZoom = 300; 
             let targetObject = null;
             let currentTool = 'view';
-            let lastClickTime = 0; 
             const SCALE_FACTOR = {scale_factor};
             
             // Drawing State
@@ -798,10 +834,13 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             let measureMarkers = [];
             let floatingLabels = []; // Floating measurement labels
             let measurements = []; // Store all measurements for export
+            let draggedLabel = null;
+            let labelDragOffset = {{ x: 0, y: 0 }};
             
             // iPad touch handling
             let touchStartTime = 0;
             let longPressTimer = null;
+            let lastClickTime = 0; // Prevent double-tap
             
             // UI State
             let settingsPanelVisible = false;
@@ -997,7 +1036,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     
                     if(tool === 'brush') {{ 
                         tName.innerText = "SURFACE BRUSH"; 
-                        hud.innerText = "Click and drag to draw continuously"; 
+                        hud.innerText = "Draw closed loop for area measurement"; 
                     }}
                     else if(tool === 'eraser') {{
                         tName.innerText = "ERASER TOOL";
@@ -1112,10 +1151,11 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
 
             // --- INTERACTION ---
             function onDown(event) {{
+                // Prevent double-tap
                 const now = Date.now();
-                // Nếu 2 lần chạm cách nhau dưới 300ms thì bỏ qua (chặn double tap)
-                if (now - lastClickTime < 300) return; 
+                if (now - lastClickTime < 300) return;
                 lastClickTime = now;
+                
                 if (currentTool === 'view' || event.button !== 0) return;
 
                 const hits = getIntersects(event);
@@ -1196,7 +1236,39 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             function onUp(event) {{
                 if (isDrawing && currentTool === 'brush') {{
                     isDrawing = false;
-                    
+                    if (drawPoints.length > 10) {{ 
+                        const firstPoint = drawPoints[0];
+                        const lastPoint = drawPoints[drawPoints.length - 1];
+                        const distance = firstPoint.distanceTo(lastPoint);
+                        
+                        // Ngưỡng khép kín (5% zoom)
+                        const closeThreshold = currentZoom * 0.05;
+
+                        if (distance < closeThreshold) {{
+                            // 1. Nối kín vòng dây
+                            drawPoints.push(firstPoint);
+                            updateBrushStroke(); 
+
+                            // 2. Tính toán diện tích
+                            const areaResult = calculateArea(drawPoints);
+                            
+                            // 3. Tô màu vùng kín
+                            fillClosedLoop(drawPoints, areaResult);
+                            
+                            // 4. Hiển thị số đo (mm2)
+                            const areaText = areaResult.value.toFixed(1) + ' mm²';
+                            const labelData = createFloatingLabel(areaResult.center, areaText, 'area');
+                            
+                            // 5. Lưu vào danh sách (Dùng {{ }} cho object JS)
+                            measurements.push({{
+                                type: 'area',
+                                value: areaResult.value,
+                                unit: 'mm²',
+                                points: [areaResult.center],
+                                labelData: labelData
+                            }});
+                        }}
+                    }}
                     if (tempMeshes.length > 0) {{
                         tempMeshes.forEach(m => drawnObjects.push(m));
                         tempMeshes = [];
@@ -1245,6 +1317,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 tube.renderOrder = 999;
                 scene.add(tube);
                 drawnObjects.push(tube);
+                return tube; // Return for linking to label
             }}
 
             function addMarker(point, color, isVertex = false) {{
@@ -1259,7 +1332,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 measureMarkers.push(marker);
             }}
 
-            // --- ANNOTATION TOOL (CẬP NHẬT: MÀU & DI CHUYỂN) ---
+            // --- ANNOTATION TOOL (FIXED: iPad Touch Support) ---
             function createAnnotation(point3D, event) {{
                 // 1. Tạo marker 3D với màu hiện tại
                 const markerGeo = new THREE.SphereGeometry(currentZoom * 0.003, 16, 16);
@@ -1279,11 +1352,13 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     label.style.color = '#333';
                 }}
                 
+                const annotId = annotationCounter;
+                
                 label.innerHTML = `
-                    <div class="annotation-header" onmousedown="startDragAnnotation(event, ${{annotationCounter}})">
+                    <div class="annotation-header" data-annot-id="${{annotId}}">
                         <div style="display:flex; align-items:center;">
-                            <span class="annotation-number" style="background:${{settings.colorHex}}; color:#fff;">${{annotationCounter}}</span>
-                            <span style="font-size:11px;">Note #${{annotationCounter}}</span>
+                            <span class="annotation-number" style="background:${{settings.colorHex}}; color:#fff;">${{annotId}}</span>
+                            <span style="font-size:11px;">Note #${{annotId}}</span>
                         </div>
                         <i class="material-icons" style="font-size:14px; opacity:0.7;">open_with</i>
                     </div>
@@ -1300,7 +1375,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 document.body.appendChild(label);
                 
                 const annotation = {{
-                    id: annotationCounter,
+                    id: annotId,
                     point3D: point3D,
                     marker: marker,
                     label: label,
@@ -1310,6 +1385,10 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 
                 annotations.push(annotation);
                 drawnObjects.push(marker);
+                
+                // Setup drag handlers
+                setupAnnotationDrag(annotation);
+                
                 annotationCounter++;
                 
                 function updateLabelPosition() {{
@@ -1327,45 +1406,99 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 updateLabelPosition();
             }}
             
-            // --- ANNOTATION DRAGGING ---
-            window.startDragAnnotation = function(event, id) {{
-                event.preventDefault();
-                event.stopPropagation();
+            // --- ANNOTATION DRAGGING (iPad Compatible) ---
+            function setupAnnotationDrag(annotation) {{
+                const header = annotation.label.querySelector('.annotation-header');
+                let dragStartTime = 0;
                 
-                const ann = annotations.find(a => a.id === id);
-                if(ann) {{
-                    draggedAnnotation = ann;
-                    isDraggingAnnotation = true;
-                    dragOffset.x = event.clientX;
-                    dragOffset.y = event.clientY;
-                    ann.label.style.zIndex = 10000;
-                }}
-            }};
+                // Mouse events
+                header.addEventListener('mousedown', (e) => {{
+                    if(e.target.tagName === 'INPUT') return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    startAnnotationDrag(annotation, e.clientX, e.clientY);
+                }});
+                
+                // Touch events - iPad optimized
+                header.addEventListener('touchstart', (e) => {{
+                    dragStartTime = Date.now();
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const touch = e.touches[0];
+                    startAnnotationDrag(annotation, touch.clientX, touch.clientY);
+                }}, {{ passive: false }});
+                
+                header.addEventListener('touchend', (e) => {{
+                    const dragDuration = Date.now() - dragStartTime;
+                    // If very short touch, might be a tap not drag
+                    if(dragDuration < 100) {{
+                        endAnnotationDrag();
+                    }}
+                }});
+            }}
             
-            window.addEventListener('pointermove', function(event) {{
+            function startAnnotationDrag(annotation, clientX, clientY) {{
+                draggedAnnotation = annotation;
+                isDraggingAnnotation = true;
+                dragOffset.x = clientX;
+                dragOffset.y = clientY;
+                annotation.label.style.zIndex = 10000;
+                
+                // Disable orbit controls when dragging
+                if(controls) controls.enabled = false;
+            }}
+            
+            // Global drag handlers
+            document.addEventListener('mousemove', (event) => {{
                 if (isDraggingAnnotation && draggedAnnotation) {{
                     event.preventDefault();
-                    
-                    const deltaX = event.clientX - dragOffset.x;
-                    const deltaY = event.clientY - dragOffset.y;
-                    
-                    draggedAnnotation.offsetX += deltaX;
-                    draggedAnnotation.offsetY += deltaY;
-                    
-                    dragOffset.x = event.clientX;
-                    dragOffset.y = event.clientY;
+                    updateAnnotationDrag(event.clientX, event.clientY);
                 }}
             }});
             
-            window.addEventListener('pointerup', function(event) {{
+            document.addEventListener('touchmove', (event) => {{
+                if (isDraggingAnnotation && draggedAnnotation) {{
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const touch = event.touches[0];
+                    updateAnnotationDrag(touch.clientX, touch.clientY);
+                }}
+            }}, {{ passive: false }});
+            
+            document.addEventListener('mouseup', () => {{
                 if (isDraggingAnnotation) {{
-                    isDraggingAnnotation = false;
-                    if(draggedAnnotation) {{
-                        draggedAnnotation.label.style.zIndex = 1000;
-                        draggedAnnotation = null;
-                    }}
+                    endAnnotationDrag();
                 }}
             }});
+            
+            document.addEventListener('touchend', () => {{
+                if (isDraggingAnnotation) {{
+                    endAnnotationDrag();
+                }}
+            }});
+            
+            function updateAnnotationDrag(clientX, clientY) {{
+                const deltaX = clientX - dragOffset.x;
+                const deltaY = clientY - dragOffset.y;
+                
+                draggedAnnotation.offsetX += deltaX;
+                draggedAnnotation.offsetY += deltaY;
+                
+                dragOffset.x = clientX;
+                dragOffset.y = clientY;
+            }}
+            
+            function endAnnotationDrag() {{
+                isDraggingAnnotation = false;
+                if(draggedAnnotation) {{
+                    draggedAnnotation.label.style.zIndex = 1000;
+                    draggedAnnotation = null;
+                }}
+                // Re-enable orbit controls if in view mode
+                if(controls && currentTool === 'view') {{
+                    controls.enabled = true;
+                }}
+            }}
 
             // --- ERASER TOOL ---
             function createEraserCursor() {{
@@ -1393,6 +1526,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             function eraseAtPoint(point) {{
                 const eraseRadiusWorld = eraserRadius * currentZoom;
                 
+                // Check drawn objects
                 for(let i = drawnObjects.length - 1; i >= 0; i--) {{
                     const obj = drawnObjects[i];
                     
@@ -1416,17 +1550,21 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                         }}
                         
                         if(shouldErase) {{
-                            scene.remove(obj);
-                            if(obj.geometry) obj.geometry.dispose();
-                            if(obj.material) obj.material.dispose();
+                            // Check if this object is linked to a label
+                            const linkedLabel = floatingLabels.find(l => 
+                                l.relatedObjects.includes(obj)
+                            );
                             
-                            const annotation = annotations.find(a => a.marker === obj);
-                            if(annotation) {{
-                                annotation.label.remove();
-                                annotations = annotations.filter(a => a !== annotation);
+                            if(linkedLabel) {{
+                                // Delete entire measurement including label
+                                deleteFloatingLabel(linkedLabel);
+                            }} else {{
+                                // Just delete the object
+                                scene.remove(obj);
+                                if(obj.geometry) obj.geometry.dispose();
+                                if(obj.material) obj.material.dispose();
+                                drawnObjects.splice(i, 1);
                             }}
-                            
-                            drawnObjects.splice(i, 1);
                         }}
                     }}
                     else if(obj.type === 'Mesh' && obj.geometry && obj.geometry.type === 'SphereGeometry') {{
@@ -1458,30 +1596,183 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 }};
             }}
             
-            // --- FLOATING LABELS ---
+            // --- FLOATING LABELS (DRAGGABLE & DELETABLE) ---
             function createFloatingLabel(point3D, text, type) {{
                 const label = document.createElement('div');
                 label.className = `floating-label ${{type}}`;
-                label.innerText = text;
+                
+                const textSpan = document.createElement('span');
+                textSpan.innerText = text;
+                
+                const closeBtn = document.createElement('button');
+                closeBtn.className = 'label-close-btn';
+                closeBtn.innerHTML = '×';
+                closeBtn.title = 'Delete measurement';
+                
+                label.appendChild(textSpan);
+                label.appendChild(closeBtn);
+                
                 document.body.appendChild(label);
                 
                 const labelData = {{
                     element: label,
                     point3D: point3D.clone(),
                     text: text,
-                    type: type
+                    type: type,
+                    offsetX: 0,
+                    offsetY: -30,
+                    relatedObjects: [] // Store related line/mesh objects
                 }};
                 
                 floatingLabels.push(labelData);
                 
+                // Drag functionality
+                label.addEventListener('mousedown', (e) => {{
+                    if(e.target === closeBtn) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    draggedLabel = labelData;
+                    labelDragOffset.x = e.clientX - parseFloat(label.style.left);
+                    labelDragOffset.y = e.clientY - parseFloat(label.style.top);
+                }});
+                
+                // Delete functionality
+                closeBtn.addEventListener('click', (e) => {{
+                    e.stopPropagation();
+                    deleteFloatingLabel(labelData);
+                }});
+                
                 function updatePosition() {{
                     if(!label.parentElement) return;
                     const pos = toScreenPosition(point3D);
-                    label.style.left = pos.x + 'px';
-                    label.style.top = (pos.y - 30) + 'px';
+                    label.style.left = (pos.x + labelData.offsetX) + 'px';
+                    label.style.top = (pos.y + labelData.offsetY) + 'px';
                     requestAnimationFrame(updatePosition);
                 }}
                 updatePosition();
+                
+                return labelData;
+            }}
+            
+            // Global label drag listeners
+            document.addEventListener('mousemove', (e) => {{
+                if(draggedLabel) {{
+                    e.preventDefault();
+                    const newX = e.clientX - labelDragOffset.x;
+                    const newY = e.clientY - labelDragOffset.y;
+                    
+                    draggedLabel.element.style.left = newX + 'px';
+                    draggedLabel.element.style.top = newY + 'px';
+                    
+                    const originalPos = toScreenPosition(draggedLabel.point3D);
+                    draggedLabel.offsetX = newX - originalPos.x;
+                    draggedLabel.offsetY = newY - originalPos.y;
+                }}
+            }});
+            
+            document.addEventListener('mouseup', () => {{
+                draggedLabel = null;
+            }});
+            
+            function deleteFloatingLabel(labelData) {{
+                // Remove label element
+                if(labelData.element && labelData.element.parentElement) {{
+                    labelData.element.remove();
+                }}
+                
+                // Remove related 3D objects (lines, meshes)
+                labelData.relatedObjects.forEach(obj => {{
+                    scene.remove(obj);
+                    if(obj.geometry) obj.geometry.dispose();
+                    if(obj.material) obj.material.dispose();
+                    
+                    const index = drawnObjects.indexOf(obj);
+                    if(index > -1) drawnObjects.splice(index, 1);
+                }});
+                
+                // Remove from floatingLabels array
+                const index = floatingLabels.indexOf(labelData);
+                if(index > -1) floatingLabels.splice(index, 1);
+                
+                // Remove from measurements array
+                const measureIndex = measurements.findIndex(m => 
+                    m.labelData === labelData
+                );
+                if(measureIndex > -1) measurements.splice(measureIndex, 1);
+            }}
+            
+            // --- AREA CALCULATION (SKIN FLAP) ---
+            function calculateArea(points3D) {{
+                if (points3D.length < 3) return {{ value: 0, center: new THREE.Vector3() }};
+                
+                // 1. Tính vector pháp tuyến và tâm (Newell's method)
+                let normal = new THREE.Vector3();
+                let center = new THREE.Vector3();
+                
+                for (let i = 0; i < points3D.length; i++) {{
+                    let j = (i + 1) % points3D.length;
+                    normal.x += (points3D[i].y - points3D[j].y) * (points3D[i].z + points3D[j].z);
+                    normal.y += (points3D[i].z - points3D[j].z) * (points3D[i].x + points3D[j].x);
+                    normal.z += (points3D[i].x - points3D[j].x) * (points3D[i].y + points3D[j].y);
+                    center.add(points3D[i]);
+                }}
+                normal.normalize();
+                center.divideScalar(points3D.length);
+                
+                // 2. Tạo Quaternion để xoay về mặt phẳng XY
+                const alignVector = new THREE.Vector3(0, 0, 1);
+                const quaternion = new THREE.Quaternion().setFromUnitVectors(normal, alignVector);
+                
+                // 3. Chiếu điểm sang 2D
+                const points2D = points3D.map(p => {{
+                    const vec = p.clone().sub(center).applyQuaternion(quaternion);
+                    return new THREE.Vector2(vec.x, vec.y);
+                }});
+                
+                // 4. Tính diện tích 2D (Shoelace formula)
+                const areaVirtual = THREE.ShapeUtils.area(points2D);
+                
+                // 5. Đổi sang mm² thật
+                const areaReal = Math.abs(areaVirtual) * SCALE_FACTOR * SCALE_FACTOR;
+                
+                return {{
+                    value: areaReal,
+                    points2D: points2D,
+                    center: center,
+                    quaternion: quaternion
+                }};
+            }}
+            
+            // Tô màu vùng đã chọn (Tạo Flap Mesh)
+            function fillClosedLoop(points3D, areaData) {{
+                const shape = new THREE.Shape(areaData.points2D);
+                const geometry = new THREE.ShapeGeometry(shape);
+                
+                const material = new THREE.MeshBasicMaterial({{
+                    color: settings.color,
+                    transparent: true,
+                    opacity: 0.4,
+                    side: THREE.DoubleSide,
+                    depthTest: false
+                }});
+                
+                const mesh = new THREE.Mesh(geometry, material);
+                
+                // Xoay về vị trí 3D ban đầu
+                const invertQuat = areaData.quaternion.clone().invert();
+                mesh.quaternion.copy(invertQuat);
+                mesh.position.copy(areaData.center);
+                
+                // Đẩy nhẹ lên bề mặt
+                const offsetVec = new THREE.Vector3(0, 0, currentZoom * 0.001);
+                offsetVec.applyQuaternion(invertQuat);
+                mesh.position.add(offsetVec);
+                
+                mesh.renderOrder = 998;
+                scene.add(mesh);
+                drawnObjects.push(mesh);
+                
+                return mesh;
             }}
 
             function measureDistance(p1, p2) {{
@@ -1489,18 +1780,20 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 const distText = dist.toFixed(2) + ' mm';
                 document.getElementById('measure-value').innerText = distText;
                 
-                drawSurfaceLine(p1, p2);
+                const line = drawSurfaceLine(p1, p2);
                 
                 // Tạo floating label
                 const midPoint = new THREE.Vector3().lerpVectors(p1, p2, 0.5);
-                createFloatingLabel(midPoint, distText, 'distance');
+                const labelData = createFloatingLabel(midPoint, distText, 'distance');
+                labelData.relatedObjects = [line]; // Link line to label
                 
                 // Lưu vào measurements
                 measurements.push({{
                     type: 'distance',
                     value: dist,
                     unit: 'mm',
-                    points: [p1.clone(), p2.clone()]
+                    points: [p1.clone(), p2.clone()],
+                    labelData: labelData
                 }});
                 
                 setTimeout(() => {{
@@ -1510,70 +1803,92 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             }}
 
             // --- ANGLE MEASUREMENT (CORRECTED: A-B-C LOGIC) ---
+            // --- ANGLE MEASUREMENT (FIXED FOR PYTHON F-STRING) ---
             function handleAngleMeasurement(point) {{
+                // 1. Tự động Reset: Nếu đã đo xong 3 điểm, chạm tiếp sẽ bắt đầu góc mới
+                if (measurePoints.length === 3) {{
+                    measureMarkers.forEach(m => scene.remove(m));
+                    measureMarkers = [];
+                    measurePoints = [];
+                    // Xóa đường line tạm cũ
+                     if(window.tempAngleLines) {{
+                        window.tempAngleLines.forEach(l => scene.remove(l));
+                        window.tempAngleLines = [];
+                    }}
+                    document.getElementById('measure-value').innerText = "0.0°";
+                    document.getElementById('info-hud').innerText = "Starting new angle...";
+                }}
+
+                // 2. CHỐNG TRÙNG ĐIỂM (QUAN TRỌNG CHO iPAD)
+                if (measurePoints.length > 0) {{
+                    const lastPoint = measurePoints[measurePoints.length - 1];
+                    const dist = point.distanceTo(lastPoint);
+                    // Ngưỡng lọc: khoảng 1% độ zoom hiện tại
+                    if (dist < currentZoom * 0.01) {{ 
+                        console.log("Ignored double tap");
+                        return; 
+                    }}
+                }}
+
                 measurePoints.push(point);
                 
-                // Màu marker: A=xanh lá, B (vertex)=đỏ, C=xanh dương
+                // --- Logic hiển thị màu và tính toán ---
                 let markerColor;
                 let isVertex = false;
                 
                 if(measurePoints.length === 1) {{
-                    markerColor = 0x4CAF50; // Xanh lá - Point A
-                    document.getElementById('info-hud').innerText = "Point A set. Click Vertex B (góc đỉnh)";
+                    markerColor = 0x4CAF50; // A - Xanh lá
+                    document.getElementById('info-hud').innerText = "Point A set. Click Vertex B (Đỉnh góc)";
                 }}
                 else if(measurePoints.length === 2) {{
-                    markerColor = 0xFF0000; // Đỏ - Vertex B
-                    isVertex = true; // Marker lớn hơn để nổi bật
+                    markerColor = 0xFF0000; // B - Đỏ
+                    isVertex = true;
                     document.getElementById('info-hud').innerText = "Vertex B set. Click Point C";
                     
-                    // Vẽ cạnh BA (từ B về A)
-                    drawSurfaceLine(measurePoints[1], measurePoints[0]);
+                    // Vẽ cạnh BA
+                    const line1 = drawSurfaceLine(measurePoints[1], measurePoints[0]);
+                    if(!window.tempAngleLines) window.tempAngleLines = [];
+                    window.tempAngleLines.push(line1);
                 }}
                 else if(measurePoints.length === 3) {{
-                    markerColor = 0x2196F3; // Xanh dương - Point C
+                    markerColor = 0x2196F3; // C - Xanh dương
                     
-                    // Lấy 3 điểm: A, B (vertex), C
                     const pointA = measurePoints[0];
-                    const pointB = measurePoints[1]; // Đỉnh góc
+                    const pointB = measurePoints[1];
                     const pointC = measurePoints[2];
                     
-                    // Tính 2 vector từ đỉnh B
                     const vectorBA = pointA.clone().sub(pointB).normalize();
                     const vectorBC = pointC.clone().sub(pointB).normalize();
                     
-                    // Tính góc giữa 2 vector (góc tại đỉnh B)
                     const angleRad = vectorBA.angleTo(vectorBC);
                     const angleDeg = THREE.MathUtils.radToDeg(angleRad);
-                    
                     const angleText = angleDeg.toFixed(1) + '°';
                     
-                    // Hiển thị kết quả
                     document.getElementById('measure-value').innerText = angleText;
-                    document.getElementById('info-hud').innerText = `∠ABC = ${{angleText}} (B is vertex)`;
+                    // Chú ý: Dùng ${{ }} cho biến JS trong chuỗi
+                    document.getElementById('info-hud').innerText = `∠ABC = ${{angleText}} (Click to start new)`;
                     
-                    // Vẽ cạnh BC (từ B đến C)
-                    drawSurfaceLine(measurePoints[1], measurePoints[2]);
+                    // Vẽ cạnh BC
+                    const line2 = drawSurfaceLine(measurePoints[1], measurePoints[2]);
+                    if(!window.tempAngleLines) window.tempAngleLines = [];
+                    window.tempAngleLines.push(line2);
                     
-                    // Tạo floating label tại đỉnh B
-                    createFloatingLabel(pointB, '∠' + angleText, 'angle');
+                    // Tạo nhãn kết quả
+                    const labelData = createFloatingLabel(pointB, '∠' + angleText, 'angle');
+                    labelData.relatedObjects = [...window.tempAngleLines];
                     
-                    // Lưu vào measurements
+                    // Lưu vào báo cáo
                     measurements.push({{
                         type: 'angle',
                         value: angleDeg,
                         unit: '°',
-                        points: [pointA.clone(), pointB.clone(), pointC.clone()]
+                        points: [pointA.clone(), pointB.clone(), pointC.clone()],
+                        labelData: labelData
                     }});
-                    
-                    // Xóa markers sau 5 giây
-                    setTimeout(() => {{
-                        measureMarkers.forEach(m => scene.remove(m));
-                        measureMarkers = [];
-                        measurePoints = [];
-                    }}, 5000);
+
+                    window.tempAngleLines = [];
                 }}
                 
-                // Thêm marker với màu tương ứng (vertex B lớn hơn)
                 addMarker(point, markerColor, isVertex);
             }}
 
@@ -1655,11 +1970,48 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     pdf.setFontSize(10);
                     pdf.setTextColor(0);
                     
-                    measurements.forEach((m, i) => {{
-                        const text = `${{i + 1}}. ${{m.type.toUpperCase()}}: ${{m.value.toFixed(2)}} ${{m.unit}}`;
-                        pdf.text(text, margin + 5, y);
-                        y += 6;
-                    }});
+                    // Group by type
+                    const distances = measurements.filter(m => m.type === 'distance');
+                    const angles = measurements.filter(m => m.type === 'angle');
+                    const areas = measurements.filter(m => m.type === 'area');
+                    
+                    if(distances.length > 0) {{
+                        pdf.setTextColor(33, 150, 243);
+                        pdf.text('Distances:', margin + 2, y);
+                        y += 5;
+                        pdf.setTextColor(0);
+                        distances.forEach((m, i) => {{
+                            const text = `  • ${{m.value.toFixed(2)}} mm`;
+                            pdf.text(text, margin + 5, y);
+                            y += 5;
+                        }});
+                        y += 2;
+                    }}
+                    
+                    if(angles.length > 0) {{
+                        pdf.setTextColor(255, 152, 0);
+                        pdf.text('Angles:', margin + 2, y);
+                        y += 5;
+                        pdf.setTextColor(0);
+                        angles.forEach((m, i) => {{
+                            const text = `  • ${{m.value.toFixed(1)}}°`;
+                            pdf.text(text, margin + 5, y);
+                            y += 5;
+                        }});
+                        y += 2;
+                    }}
+                    
+                    if(areas.length > 0) {{
+                        pdf.setTextColor(156, 39, 176);
+                        pdf.text('Skin Flap Areas:', margin + 2, y);
+                        y += 5;
+                        pdf.setTextColor(0);
+                        areas.forEach((m, i) => {{
+                            const text = `  • ${{m.value.toFixed(1)}} mm² (Flap ${{i + 1}})`;
+                            pdf.text(text, margin + 5, y);
+                            y += 5;
+                        }});
+                    }}
                 }}
                 
                 // Annotations
@@ -2050,14 +2402,37 @@ else:
     **Professional Features:**
     - ✨ Smooth continuous surface drawing
     - 📍 Draggable colored annotations
-    - 📏 Accurate measurements (distance & angle)
+    - 📏 Distance & angle measurements
+    - 📐 **Skin Flap Area Calculation** (mm²)
+    - 🏷️ Draggable floating labels with delete
+    - 📄 PDF export with 3 views + data
+    - 💾 Save/Load projects (.json)
     - 🎨 Medical color coding
     - 📱 iPad & touch optimized
-    - 🎛️ Collapsible UI panels for maximum workspace
+    - 🎛️ Collapsible UI
+    
+    **Clinical Workflow:**
+    1. Upload 3D scan → Calibrate
+    2. Draw surgical markings (Brush)
+    3. **Draw closed loop for flap area**
+    4. Measure distances & angles
+    5. Add annotations with notes
+    6. Drag labels to optimal positions
+    7. Save project for later
+    8. Export PDF for medical records
     
     **Optimized for:**
+    - **Skin Flap Surgery** (area calculation)
     - Rhinoplasty planning
     - Facial reconstructive surgery
-    - Orthognathic surgery
+    - Tumor excision planning
     - Maxillofacial procedures
+    - Pre-operative documentation
+    
+    **New: Area Measurement**
+    - Draw around tumor/defect with Brush
+    - Auto-detects closed loops
+    - Calculates true 3D surface area
+    - Shows result in mm² (calibrated)
+    - Ideal for flap planning!
     """)
