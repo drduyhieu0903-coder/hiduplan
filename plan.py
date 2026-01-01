@@ -1626,7 +1626,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 
                 floatingLabels.push(labelData);
                 
-                // Drag functionality
+                // 1. Mouse (Máy tính)
                 label.addEventListener('mousedown', (e) => {{
                     if(e.target === closeBtn) return;
                     e.preventDefault();
@@ -1635,6 +1635,20 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     labelDragOffset.x = e.clientX - parseFloat(label.style.left);
                     labelDragOffset.y = e.clientY - parseFloat(label.style.top);
                 }});
+
+                // 2. Touch (iPad/Điện thoại) - ĐANG THIẾU CÁI NÀY
+                label.addEventListener('touchstart', (e) => {{
+                    if(e.target === closeBtn) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const touch = e.touches[0];
+                    draggedLabel = labelData;
+                    // Lấy vị trí hiện tại của nhãn
+                    const currentLeft = parseFloat(label.style.left) || 0;
+                    const currentTop = parseFloat(label.style.top) || 0;
+                    labelDragOffset.x = touch.clientX - currentLeft;
+                    labelDragOffset.y = touch.clientY - currentTop;
+                }}, {{ passive: false }});
                 
                 // Delete functionality
                 closeBtn.addEventListener('click', (e) => {{
@@ -1669,6 +1683,23 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                     draggedLabel.offsetY = newY - originalPos.y;
                 }}
             }});
+            // Thêm đoạn này để iPad hiểu khi ngón tay di chuyển nhãn
+            document.addEventListener('touchmove', (e) => {{
+                if(draggedLabel) {{
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const touch = e.touches[0];
+                    const newX = touch.clientX - labelDragOffset.x;
+                    const newY = touch.clientY - labelDragOffset.y;
+                    
+                    draggedLabel.element.style.left = newX + 'px';
+                    draggedLabel.element.style.top = newY + 'px';
+                    
+                    const originalPos = toScreenPosition(draggedLabel.point3D);
+                    draggedLabel.offsetX = newX - originalPos.x;
+                    draggedLabel.offsetY = newY - originalPos.y;
+                }}
+            }}, {{ passive: false }});
             
             document.addEventListener('mouseup', () => {{
                 draggedLabel = null;
