@@ -632,6 +632,45 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             .rotate-btn i {{
                 font-size: 20px;
             }}
+        /* TOGGLE SWITCH CSS (Đã fix lỗi ngoặc cho Python) */
+            /* TOGGLE SWITCH CSS (FIXED FOR PYTHON F-STRING & LAYOUT) */
+            .switch {{
+              position: relative;
+              display: inline-block;
+              width: 40px;
+              height: 20px;
+            }}
+            .switch input {{ 
+              opacity: 0; 
+              width: 0; 
+              height: 0; 
+            }}
+            /* Đã đổi tên class từ .slider -> .toggle-slider để không trùng */
+            .toggle-slider {{
+              position: absolute;
+              cursor: pointer;
+              top: 0; left: 0; right: 0; bottom: 0;
+              background-color: rgba(255,255,255,0.2);
+              transition: .4s;
+              border-radius: 34px;
+            }}
+            .toggle-slider:before {{
+              position: absolute;
+              content: "";
+              height: 14px;
+              width: 14px;
+              left: 3px;
+              bottom: 3px;
+              background-color: white;
+              transition: .4s;
+              border-radius: 50%;
+            }}
+            input:checked + .toggle-slider {{
+              background-color: #2196F3;
+            }}
+            input:checked + .toggle-slider:before {{
+              transform: translateX(20px);
+            }}
 
         </style>
         
@@ -680,13 +719,12 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
         </div>
 
         <!-- SETTINGS PANEL -->
-        <div class="settings-panel" id="settings">
+       <div class="settings-panel" id="settings">
             <div class="panel-header">
                 <span id="tool-name">TOOL SETTINGS</span>
                 <button class="close-panel-btn" onclick="toggleSettingsPanel()" title="Hide Settings">×</button>
             </div>
             
-            <!-- Medical Color Presets -->
             <div>
                 <div class="setting-label" style="margin-bottom: 8px;">Surgical Marker Color</div>
                 <div class="color-presets">
@@ -727,16 +765,21 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 <span class="value-display" id="offset-val">0.0001</span>
             </div>
             
-            <!-- Measurement Display -->
+            <div class="setting-row">
+                <span class="setting-label">Auto-Calc Area</span>
+                <label class="switch">
+                    <input type="checkbox" id="p-auto-area" checked onchange="updateSettings()">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            
             <div id="measure-box" style="display:none;">
                 <div class="measurement-box">
                     <div class="measurement-label" id="measure-label">MEASUREMENT</div>
                     <div class="measurement-value" id="measure-value">0.0 mm</div>
                 </div>
             </div>
-        </div>
-
-        <div id="info-hud" class="info-hud">Select a tool to start</div>
+        </div> <div id="info-hud" class="info-hud">Select a tool to start</div>
 
         <!-- EXPORT PANEL -->
         <div class="export-panel">
@@ -852,7 +895,8 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 colorHex: '#9C27B0',
                 lineWidth: 0.002,
                 opacity: 0.95,
-                offsetFactor: 0.0001
+                offsetFactor: 0.0001,
+                autoArea: true
             }};
 
             function init() {{
@@ -1101,6 +1145,9 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 settings.lineWidth = parseFloat(document.getElementById('p-width').value);
                 settings.opacity = parseFloat(document.getElementById('p-opacity').value);
                 settings.offsetFactor = parseFloat(document.getElementById('p-offset').value);
+                if(document.getElementById('p-auto-area')) {{
+                    settings.autoArea = document.getElementById('p-auto-area').checked;
+                }}
                 
                 document.getElementById('width-val').innerText = (settings.lineWidth * 1000).toFixed(1);
                 document.getElementById('opacity-val').innerText = settings.opacity.toFixed(2);
@@ -1244,7 +1291,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                         // Ngưỡng khép kín (5% zoom)
                         const closeThreshold = currentZoom * 0.05;
 
-                        if (distance < closeThreshold) {{
+                        if (distance < closeThreshold && settings.autoArea) {{
                             // 1. Nối kín vòng dây
                             drawPoints.push(firstPoint);
                             updateBrushStroke(); 
@@ -1651,10 +1698,16 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 }}, {{ passive: false }});
                 
                 // Delete functionality
-                closeBtn.addEventListener('click', (e) => {{
-                    e.stopPropagation();
+                const handleDelete = (e) => {{
+                    e.preventDefault();
+                    e.stopPropagation(); // Chặn ngay lập tức, không cho sự kiện lan xuống nhãn
                     deleteFloatingLabel(labelData);
-                }});
+                    draggedLabel = null; // Ngắt trạng thái kéo nếu có lỡ kích hoạt
+                }};
+
+                closeBtn.addEventListener('click', handleDelete);
+                // QUAN TRỌNG: Thêm touchstart để iPad nhận diện ngay lập tức
+                closeBtn.addEventListener('touchstart', handleDelete, {{ passive: false }});
                 
                 function updatePosition() {{
                     if(!label.parentElement) return;
