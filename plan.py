@@ -632,7 +632,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
             .rotate-btn i {{
                 font-size: 20px;
             }}
-        /* TOGGLE SWITCH CSS (Đã fix lỗi ngoặc cho Python) */
+        
             /* TOGGLE SWITCH CSS (FIXED FOR PYTHON F-STRING & LAYOUT) */
             .switch {{
               position: relative;
