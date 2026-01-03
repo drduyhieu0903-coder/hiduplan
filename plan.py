@@ -1721,42 +1721,68 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
                 return labelData;
             }}
             
-            // Global label drag listeners
-            document.addEventListener('mousemove', (e) => {{
+           // --- GLOBAL DRAG HANDLERS (UPDATED: ANTI-STICKY LOGIC) ---
+            
+            // 1. Xử lý di chuyển cho LABEL (Floating Label)
+            function handleLabelMove(clientX, clientY, event) {{
                 if(draggedLabel) {{
-                    e.preventDefault();
-                    const newX = e.clientX - labelDragOffset.x;
-                    const newY = e.clientY - labelDragOffset.y;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    
+                    const newX = clientX - labelDragOffset.x;
+                    const newY = clientY - labelDragOffset.y;
                     
                     draggedLabel.element.style.left = newX + 'px';
                     draggedLabel.element.style.top = newY + 'px';
                     
+                    // Cập nhật offset tương đối để xoay 3D vẫn chuẩn
                     const originalPos = toScreenPosition(draggedLabel.point3D);
                     draggedLabel.offsetX = newX - originalPos.x;
                     draggedLabel.offsetY = newY - originalPos.y;
                 }}
+            }}
+
+            // Sự kiện chuột
+            document.addEventListener('mousemove', (e) => {{
+                handleLabelMove(e.clientX, e.clientY, e);
             }});
-            // Thêm đoạn này để iPad hiểu khi ngón tay di chuyển nhãn
+            
+            // Sự kiện cảm ứng (iPad) - Thêm passive: false để chặn cuộn trang
             document.addEventListener('touchmove', (e) => {{
                 if(draggedLabel) {{
-                    e.preventDefault();
-                    e.stopPropagation();
                     const touch = e.touches[0];
-                    const newX = touch.clientX - labelDragOffset.x;
-                    const newY = touch.clientY - labelDragOffset.y;
-                    
-                    draggedLabel.element.style.left = newX + 'px';
-                    draggedLabel.element.style.top = newY + 'px';
-                    
-                    const originalPos = toScreenPosition(draggedLabel.point3D);
-                    draggedLabel.offsetX = newX - originalPos.x;
-                    draggedLabel.offsetY = newY - originalPos.y;
+                    handleLabelMove(touch.clientX, touch.clientY, e);
                 }}
             }}, {{ passive: false }});
-            
-            document.addEventListener('mouseup', () => {{
+
+            // 2. Xử lý thả tay (End/Drop) - GLOBAL KILL SWITCH
+            // Hàm này sẽ ngắt mọi loại kéo thả (cả Label lẫn Annotation)
+            function endAllDrags() {{
+                // Ngắt Label
                 draggedLabel = null;
-            }});
+                
+                // Ngắt Annotation (nếu đang bị dính)
+                if (typeof isDraggingAnnotation !== 'undefined' && isDraggingAnnotation) {{
+                    isDraggingAnnotation = false;
+                    
+                    // Reset lại style cho Annotation
+                    if(draggedAnnotation) {{
+                        draggedAnnotation.label.style.zIndex = 1000;
+                        draggedAnnotation = null;
+                    }}
+                    
+                    // Trả lại quyền xoay 3D cho OrbitControls
+                    if(controls && currentTool === 'view') {{
+                        controls.enabled = true;
+                    }}
+                }}
+            }}
+
+            // Bắt sự kiện trên toàn bộ cửa sổ (Window) để không bị sót
+            window.addEventListener('mouseup', endAllDrags);
+            window.addEventListener('touchend', endAllDrags);
+            window.addEventListener('touchcancel', endAllDrags); // Quan trọng: Xử lý khi có noti/cuộc gọi làm ngắt touch
+            window.addEventListener('blur', endAllDrags);        // Xử lý khi tab bị ẩn hoặc switch app
             
             function deleteFloatingLabel(labelData) {{
                 // Remove label element
