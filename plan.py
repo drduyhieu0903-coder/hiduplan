@@ -1369,7 +1369,7 @@ def render_studio_viewer(obj_text, mtl_text, scale_factor, height=750):
 
             function addMarker(point, color, isVertex = false) {{
                 // Vertex marker lớn hơn để nổi bật
-                const size = isVertex ? currentZoom * 0.0015 : currentZoom * 0.008;
+                const size = isVertex ? currentZoom * 0.0010 : currentZoom * 0.0008;
                 const geo = new THREE.SphereGeometry(size, 16, 16);
                 const mat = new THREE.MeshBasicMaterial({{ color: color, depthTest: false }});
                 const marker = new THREE.Mesh(geo, mat);
@@ -2546,4 +2546,5 @@ else:
     - Shows result in mm² (calibrated)
     - Ideal for flap planning!
     """)
+
 
